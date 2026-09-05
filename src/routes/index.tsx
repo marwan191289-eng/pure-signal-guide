@@ -60,17 +60,22 @@ function Dashboard() {
 
   useEffect(() => {
     let alive = true;
-    fetchSyntheticSymbols()
-      .then((list) => {
+    setActive(pickDefault(SYNTHETIC_SYMBOLS));
+    probeAvailableSymbols()
+      .then((list: SymbolInfo[]) => {
         if (!alive) return;
         setSymbols(list);
-        setActive((cur) => cur || pickDefault(list));
+        setActive((cur) =>
+          cur && list.some((s) => s.symbol === cur) ? cur : pickDefault(list),
+        );
         if (list.length === 0)
           setLoadError(
-            "لم تُرجع خوادم البيانات أي مؤشرات اصطناعية لموقعك الحالي. جرّب الاتصال من شبكة/دولة مسموح بها لدى مزوّد البيانات.",
+            "لم تُرجع خوادم البيانات أي مؤشرات لهذا الاتصال. جرّب إعادة التحميل أو شبكة أخرى.",
           );
       })
-      .catch((e) => alive && setLoadError(e.message));
+      .catch((e: Error) => {
+        if (alive) setLoadError(e.message);
+      });
     return () => {
       alive = false;
     };
