@@ -40,7 +40,9 @@ class DerivClient {
   onState(cb: (s: ConnState) => void) {
     this.stateListeners.add(cb);
     cb(this.state);
-    return () => this.stateListeners.delete(cb);
+    return () => {
+      this.stateListeners.delete(cb);
+    };
   }
 
   private setState(s: ConnState) {
