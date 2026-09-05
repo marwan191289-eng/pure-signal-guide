@@ -3,6 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { Candle } from "@/lib/deriv";
 import { analyze } from "@/lib/indicators";
 import { PriceChart } from "@/components/PriceChart";
+import { Button } from "@/components/ui/button";
+import { Download, Radio, Server } from "lucide-react";
 import {
   fetchHeadwayCandles,
   HEADWAY_SYMBOLS,
@@ -109,9 +111,18 @@ function Dashboard() {
             {loadError}
           </div>
         ) : candles.length === 0 ? (
-          <div className="mb-6 rounded-xl border border-primary/40 bg-primary/10 p-4 text-sm leading-7 text-foreground">
-            التطبيق جاهز ولا يعرض أي قيمة مصطنعة. شغّل ملف الجسر داخل MT5 في Headway، وعند أول إرسال
-            ستظهر شموع VOL_10 وVOL_20 هنا مباشرة.
+          <div className="mb-6 border-y border-primary/40 bg-primary/10 px-5 py-5 text-sm leading-7 text-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold">بانتظار أول إرسال حقيقي من Headway MT5</p>
+                <p className="text-muted-foreground">لا يعرض التطبيق أي سعر حتى يستلمه فعلياً من حسابك.</p>
+              </div>
+              <Button asChild>
+                <a href="/HeadwayBridge.mq5" download>
+                  <Download /> تنزيل جسر MT5
+                </a>
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -249,6 +260,33 @@ function Dashboard() {
               توجد أي طريقة تعطي دقة مضمونة في التنبؤ.
             </li>
           </ul>
+        </section>
+
+        <section className="mt-5 border-y border-border bg-surface px-5 py-6">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="flex gap-3">
+              <Server className="mt-1 size-5 shrink-0 text-primary" />
+              <div>
+                <h3 className="font-semibold">تشغيل الجسر مرة واحدة</h3>
+                <ol className="mt-2 space-y-1 text-xs leading-6 text-muted-foreground">
+                  <li>١. نزّل الملف وافتحه في MetaEditor ثم اضغط Compile.</li>
+                  <li>٢. في MT5 أضف رابط التطبيق إلى قائمة WebRequest المسموح بها.</li>
+                  <li>٣. شغّل HeadwayBridge وأدخل رمز الربط السري في إعداداته.</li>
+                  <li>٤. إن اختلف اسما المؤشرين لدى Headway، اكتبهما كما يظهران في Market Watch.</li>
+                </ol>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Radio className="mt-1 size-5 shrink-0 text-bull" />
+              <div>
+                <h3 className="font-semibold">شرط استمرار البيانات</h3>
+                <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                  يجب أن تبقى منصة MT5 مفتوحة ومتصلة بحساب Headway. الأفضل تشغيلها على VPS دائم؛ وستظهر
+                  حالة انقطاع واضحة إذا توقف الإرسال، ولن يستبدل التطبيق البيانات المتوقفة بأرقام وهمية.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>
