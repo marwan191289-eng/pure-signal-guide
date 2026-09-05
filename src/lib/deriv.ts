@@ -15,8 +15,7 @@ export type Candle = {
 export type SymbolInfo = {
   symbol: string;
   display_name: string;
-  submarket_display_name: string;
-  exchange_is_open: number;
+  group: string;
 };
 
 type Pending = {
