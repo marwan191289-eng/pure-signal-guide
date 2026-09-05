@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   deriv,
-  fetchSyntheticSymbols,
+  probeAvailableSymbols,
+  SYNTHETIC_SYMBOLS,
   streamCandles,
   streamTicks,
   type Candle,
