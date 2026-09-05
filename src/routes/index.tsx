@@ -95,8 +95,8 @@ function Dashboard() {
 
   const grouped = useMemo(() => {
     const g = new Map<string, SymbolInfo[]>();
-    for (const s of symbols) {
-      const key = s.submarket_display_name || "أخرى";
+    for (const s of symbols.length ? symbols : SYNTHETIC_SYMBOLS) {
+      const key = s.group || "أخرى";
       if (!g.has(key)) g.set(key, []);
       g.get(key)!.push(s);
     }
