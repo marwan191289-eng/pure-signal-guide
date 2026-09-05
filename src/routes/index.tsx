@@ -1,17 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import {
-  deriv,
-  probeAvailableSymbols,
-  SYNTHETIC_SYMBOLS,
-  streamCandles,
-  streamTicks,
-  type Candle,
-  type ConnState,
-  type SymbolInfo,
-} from "@/lib/deriv";
-import { analyze, detectSpikes } from "@/lib/indicators";
+import type { Candle } from "@/lib/deriv";
+import { analyze } from "@/lib/indicators";
 import { PriceChart } from "@/components/PriceChart";
+import { Button } from "@/components/ui/button";
+import { Download, Radio, Server } from "lucide-react";
+import {
+  fetchHeadwayCandles,
+  HEADWAY_SYMBOLS,
+  subscribeToHeadway,
+  type HeadwaySymbol,
+} from "@/lib/headway";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -20,12 +19,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "لوحة تحليل لحظية لمؤشرات التقلب والانفجار والانهيار الاصطناعية، ببيانات أسعار حقيقية مباشرة ومؤشرات فنية محسوبة بشفافية.",
+          "لوحة تحليل لحظية لمؤشري Headway VOL_10 وVOL_20، ببيانات MT5 حقيقية ومؤشرات فنية محسوبة بشفافية.",
       },
       { property: "og:title", content: "رادار المؤشرات الاصطناعية — إشارات لحظية حقيقية" },
       {
         property: "og:description",
-        content: "أسعار مباشرة ومؤشرات فنية محسوبة لحظياً لمؤشرات Volatility و Boom و Crash.",
+        content: "أسعار MT5 مباشرة ومؤشرات فنية محسوبة لحظياً لمؤشري Headway VOL_10 وVOL_20.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -41,82 +40,49 @@ const TIMEFRAMES = [
   { label: "ساعة", value: 3600 },
 ];
 
-function pickDefault(symbols: SymbolInfo[]) {
-  const preferred = ["R_10", "1HZ10V", "R_25", "BOOM1000", "CRASH1000"];
-  for (const p of preferred) if (symbols.some((s) => s.symbol === p)) return p;
-  return symbols[0]?.symbol ?? "";
-}
-
 function Dashboard() {
-  const [conn, setConn] = useState<ConnState>("closed");
-  const [symbols, setSymbols] = useState<SymbolInfo[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [active, setActive] = useState("");
+  const [active, setActive] = useState<HeadwaySymbol>("VOL_10");
   const [granularity, setGranularity] = useState(60);
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [tick, setTick] = useState<{ epoch: number; quote: number } | null>(null);
-
-  useEffect(() => deriv().onState(setConn), []);
+  const [receivedAt, setReceivedAt] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     let alive = true;
-    setActive(pickDefault(SYNTHETIC_SYMBOLS));
-    probeAvailableSymbols()
-      .then((list: SymbolInfo[]) => {
+    setCandles([]);
+    setReceivedAt(null);
+    setLoadError(null);
+    const load = async () => {
+      try {
+        const snapshot = await fetchHeadwayCandles(active, granularity);
         if (!alive) return;
-        setSymbols(list);
-        setActive((cur) =>
-          cur && list.some((s) => s.symbol === cur) ? cur : pickDefault(list),
-        );
-        if (list.length === 0)
-          setLoadError(
-            "لم تُرجع خوادم البيانات أي مؤشرات لهذا الاتصال. جرّب إعادة التحميل أو شبكة أخرى.",
-          );
-      })
-      .catch((e: Error) => {
-        if (alive) setLoadError(e.message);
-      });
+        setCandles(snapshot.candles);
+        setReceivedAt(snapshot.receivedAt);
+        setLoadError(null);
+      } catch (error) {
+        if (alive) setLoadError(error instanceof Error ? error.message : "تعذر تحميل البيانات.");
+      }
+    };
+    void load();
+    const stop = subscribeToHeadway(active, granularity, () => void load());
     return () => {
       alive = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!active) return;
-    setCandles([]);
-    setTick(null);
-    const stopC = streamCandles(active, granularity, 500, setCandles);
-    const stopT = streamTicks(active, setTick);
-    return () => {
-      stopC();
-      stopT();
+      stop();
     };
   }, [active, granularity]);
 
-  const grouped = useMemo(() => {
-    const g = new Map<string, SymbolInfo[]>();
-    for (const s of symbols.length ? symbols : SYNTHETIC_SYMBOLS) {
-      const key = s.group || "أخرى";
-      if (!g.has(key)) g.set(key, []);
-      g.get(key)!.push(s);
-    }
-    return [...g.entries()];
-  }, [symbols]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
-  const info = symbols.find((s) => s.symbol === active);
+  const info = HEADWAY_SYMBOLS.find((s) => s.symbol === active);
   const analysis = useMemo(() => analyze(candles), [candles]);
-  const spikeKind: "boom" | "crash" | null = /boom/i.test(active)
-    ? "boom"
-    : /crash/i.test(active)
-      ? "crash"
-      : null;
-  const spikes = useMemo(
-    () => (spikeKind ? detectSpikes(candles, spikeKind) : null),
-    [candles, spikeKind],
-  );
-
-  const price = tick?.quote ?? analysis?.price;
+  const price = candles.at(-1)?.close;
   const tfLabel = TIMEFRAMES.find((t) => t.value === granularity)?.label ?? "";
+  const ageSeconds = receivedAt ? Math.max(0, Math.floor((now - Date.parse(receivedAt)) / 1000)) : null;
+  const connectionState = ageSeconds == null ? "closed" : ageSeconds <= 10 ? "open" : "stale";
 
   return (
     <div dir="rtl" className="min-h-screen bg-background text-foreground">
@@ -128,19 +94,37 @@ function Dashboard() {
               أسعار حقيقية مباشرة — كل رقم هنا محسوب من بيانات السوق الفعلية، بلا أي محاكاة
             </p>
           </div>
-          <span className="status-pill" data-state={conn}>
+          <span className="status-pill" data-state={connectionState}>
             <span className="status-dot" />
-            {conn === "open" ? "متصل مباشرة" : conn === "connecting" ? "جارٍ الاتصال" : "غير متصل"}
+            {connectionState === "open"
+              ? "MT5 متصل مباشرة"
+              : connectionState === "stale"
+                ? `آخر إرسال قبل ${ageSeconds} ثانية`
+                : "بانتظار جسر MT5"}
           </span>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-5 py-6">
-        {loadError && (
+        {loadError ? (
           <div className="mb-6 rounded-xl border border-bear/40 bg-bear/10 p-4 text-sm text-bear-foreground">
             {loadError}
           </div>
-        )}
+        ) : candles.length === 0 ? (
+          <div className="mb-6 border-y border-primary/40 bg-primary/10 px-5 py-5 text-sm leading-7 text-foreground">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="font-semibold">بانتظار أول إرسال حقيقي من Headway MT5</p>
+                <p className="text-muted-foreground">لا يعرض التطبيق أي سعر حتى يستلمه فعلياً من حسابك.</p>
+              </div>
+              <Button asChild>
+                <a href="/HeadwayBridge.mq5" download>
+                  <Download /> تنزيل جسر MT5
+                </a>
+              </Button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mb-6 flex flex-wrap items-end gap-3">
           <label className="flex flex-col gap-1.5">
@@ -148,16 +132,10 @@ function Dashboard() {
             <select
               className="field min-w-56"
               value={active}
-              onChange={(e) => setActive(e.target.value)}
+               onChange={(e) => setActive(e.target.value as HeadwaySymbol)}
             >
-              {grouped.map(([group, list]) => (
-                <optgroup key={group} label={group}>
-                  {list.map((s) => (
-                    <option key={s.symbol} value={s.symbol}>
-                      {s.display_name}
-                    </option>
-                  ))}
-                </optgroup>
+              {HEADWAY_SYMBOLS.map((s) => (
+                <option key={s.symbol} value={s.symbol}>{s.displayName}</option>
               ))}
             </select>
           </label>
@@ -181,11 +159,11 @@ function Dashboard() {
         <section className="panel mb-5">
           <div className="flex flex-wrap items-start justify-between gap-4 p-5 pb-0">
             <div>
-              <h2 className="text-base font-semibold">{info?.display_name ?? active}</h2>
+               <h2 className="text-base font-semibold">{info?.displayName ?? active}</h2>
               <p className="text-xs text-muted-foreground">
                 {candles.length > 0
-                  ? `${candles.length} شمعة (${tfLabel}) • آخر تحديث ${new Date().toLocaleTimeString("ar-EG")}`
-                  : "جارٍ تحميل البيانات..."}
+                   ? `${candles.length} شمعة (${tfLabel}) • آخر استقبال ${receivedAt ? new Date(receivedAt).toLocaleTimeString("ar-EG") : "—"}`
+                   : "لا توجد بيانات مستلمة من MT5 بعد"}
               </p>
             </div>
             <div className="text-left">
@@ -269,54 +247,46 @@ function Dashboard() {
               <Metric label="التذبذب %" value={analysis ? `${analysis.atrPct.toFixed(3)}%` : "—"} />
             </div>
 
-            {spikeKind && (
-              <div className="mt-5 border-t border-border pt-5">
-                <h3 className="mb-3 text-sm font-semibold text-muted-foreground">
-                  {spikeKind === "boom" ? "رصد القفزات الصاعدة" : "رصد الانهيارات الهابطة"} — من التاريخ
-                  الحقيقي المحمّل
-                </h3>
-                {spikes ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <Metric label="شموع منذ آخر حدث" value={String(spikes.candlesSinceLast)} highlight />
-                      <Metric label="المتوسط بين الأحداث" value={spikes.avgInterval.toFixed(1)} />
-                      <Metric label="الوسيط" value={String(spikes.medianInterval)} />
-                      <Metric label="عدد الأحداث المرصودة" value={String(spikes.spikeCount)} />
-                      <Metric label="أقصر فاصل" value={String(spikes.minInterval)} />
-                      <Metric label="أطول فاصل" value={String(spikes.maxInterval)} />
-                      <Metric label="متوسط حجم الحدث" value={`${spikes.avgSpikeSizePct.toFixed(2)}%`} />
-                      <Metric
-                        label="موقع الانتظار الحالي"
-                        value={`${spikes.elapsedPercentile.toFixed(0)}%`}
-                        highlight
-                      />
-                    </div>
-                    <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                      «موقع الانتظار» يعني: {spikes.elapsedPercentile.toFixed(0)}% من الفواصل السابقة كانت
-                      أقصر من فترة الانتظار الحالية. هذه إحصاءات وصفية لما حدث فعلاً في الشموع المحمّلة،
-                      وليست تنبؤاً — توقيت الحدث القادم عشوائي بطبيعة هذه المؤشرات.
-                    </p>
-                  </>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    لا توجد أحداث كافية في النافذة الزمنية الحالية. جرّب إطاراً زمنياً أصغر.
-                  </p>
-                )}
-              </div>
-            )}
           </section>
         </div>
 
         <section className="panel mt-5 p-5">
           <h3 className="mb-2 text-sm font-semibold">شفافية كاملة</h3>
           <ul className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
-            <li>• جميع الأسعار تصل مباشرة من خوادم مزوّد المؤشرات عبر اتصال لحظي، بلا أي توليد أو محاكاة.</li>
+            <li>• جميع الأسعار تأتي من منصة MT5 المسجّلة في Headway عبر الجسر الخاص بك، بلا أي توليد أو محاكاة.</li>
             <li>• كل مؤشر فني (RSI، المتوسطات، ATR) محسوب رياضياً من نفس الشموع المعروضة أمامك.</li>
             <li>
               • الإشارة وصف لحالة السوق الآن، وليست وعداً بالمستقبل. هذه المؤشرات عشوائية بتصميمها، ولا
               توجد أي طريقة تعطي دقة مضمونة في التنبؤ.
             </li>
           </ul>
+        </section>
+
+        <section className="mt-5 border-y border-border bg-surface px-5 py-6">
+          <div className="grid gap-5 md:grid-cols-2">
+            <div className="flex gap-3">
+              <Server className="mt-1 size-5 shrink-0 text-primary" />
+              <div>
+                <h3 className="font-semibold">تشغيل الجسر مرة واحدة</h3>
+                <ol className="mt-2 space-y-1 text-xs leading-6 text-muted-foreground">
+                  <li>١. نزّل الملف وافتحه في MetaEditor ثم اضغط Compile.</li>
+                  <li>٢. في MT5 أضف رابط التطبيق إلى قائمة WebRequest المسموح بها.</li>
+                  <li>٣. شغّل HeadwayBridge وأدخل رمز الربط السري في إعداداته.</li>
+                  <li>٤. إن اختلف اسما المؤشرين لدى Headway، اكتبهما كما يظهران في Market Watch.</li>
+                </ol>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Radio className="mt-1 size-5 shrink-0 text-bull" />
+              <div>
+                <h3 className="font-semibold">شرط استمرار البيانات</h3>
+                <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                  يجب أن تبقى منصة MT5 مفتوحة ومتصلة بحساب Headway. الأفضل تشغيلها على VPS دائم؛ وستظهر
+                  حالة انقطاع واضحة إذا توقف الإرسال، ولن يستبدل التطبيق البيانات المتوقفة بأرقام وهمية.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
       </main>
     </div>

@@ -221,6 +221,13 @@
     background-color: var(--color-primary);
     animation: pulse-dot 0.9s ease-in-out infinite;
   }
+  .status-pill[data-state="stale"] {
+    color: var(--color-primary);
+    border-color: color-mix(in oklab, var(--color-primary) 40%, transparent);
+  }
+  .status-pill[data-state="stale"] .status-dot {
+    background-color: var(--color-primary);
+  }
 
   @keyframes pulse-dot {
     0%, 100% { opacity: 1; }
