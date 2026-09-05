@@ -130,19 +130,56 @@ export function deriv(): DerivClient {
   return client;
 }
 
-export async function fetchSyntheticSymbols(): Promise<SymbolInfo[]> {
-  const res = await deriv().send<{ active_symbols: any[] }>({
-    active_symbols: "brief",
-    product_type: "basic",
-  });
-  return (res.active_symbols || [])
-    .filter((s) => s.market === "synthetic_index")
-    .map((s) => ({
-      symbol: s.symbol,
-      display_name: s.display_name,
-      submarket_display_name: s.submarket_display_name,
-      exchange_is_open: s.exchange_is_open,
-    }));
+/** Catalogue of real synthetic indices served by the data provider. */
+export const SYNTHETIC_SYMBOLS: SymbolInfo[] = [
+  { symbol: "R_10", display_name: "مؤشر التقلب 10", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_25", display_name: "مؤشر التقلب 25", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_50", display_name: "مؤشر التقلب 50", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_75", display_name: "مؤشر التقلب 75", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_100", display_name: "مؤشر التقلب 100", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "1HZ10V", display_name: "مؤشر التقلب 10 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ15V", display_name: "مؤشر التقلب 15 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ25V", display_name: "مؤشر التقلب 25 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ30V", display_name: "مؤشر التقلب 30 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ50V", display_name: "مؤشر التقلب 50 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ75V", display_name: "مؤشر التقلب 75 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ90V", display_name: "مؤشر التقلب 90 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "1HZ100V", display_name: "مؤشر التقلب 100 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
+  { symbol: "BOOM300N", display_name: "بوم 300", group: "بوم وكراش" },
+  { symbol: "BOOM500", display_name: "بوم 500", group: "بوم وكراش" },
+  { symbol: "BOOM1000", display_name: "بوم 1000", group: "بوم وكراش" },
+  { symbol: "CRASH300N", display_name: "كراش 300", group: "بوم وكراش" },
+  { symbol: "CRASH500", display_name: "كراش 500", group: "بوم وكراش" },
+  { symbol: "CRASH1000", display_name: "كراش 1000", group: "بوم وكراش" },
+  { symbol: "JD10", display_name: "مؤشر القفز 10", group: "مؤشرات القفز" },
+  { symbol: "JD25", display_name: "مؤشر القفز 25", group: "مؤشرات القفز" },
+  { symbol: "JD50", display_name: "مؤشر القفز 50", group: "مؤشرات القفز" },
+  { symbol: "JD75", display_name: "مؤشر القفز 75", group: "مؤشرات القفز" },
+  { symbol: "JD100", display_name: "مؤشر القفز 100", group: "مؤشرات القفز" },
+  { symbol: "stpRNG", display_name: "مؤشر الخطوة 100", group: "مؤشرات أخرى" },
+  { symbol: "RDBULL", display_name: "الثور الصاعد", group: "مؤشرات أخرى" },
+  { symbol: "RDBEAR", display_name: "الدب الهابط", group: "مؤشرات أخرى" },
+];
+
+/** Keeps only the symbols the provider actually serves this connection. */
+export async function probeAvailableSymbols(): Promise<SymbolInfo[]> {
+  const checks = await Promise.all(
+    SYNTHETIC_SYMBOLS.map(async (s) => {
+      try {
+        await deriv().send({
+          ticks_history: s.symbol,
+          count: 1,
+          end: "latest",
+          style: "candles",
+          granularity: 60,
+        });
+        return s;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return checks.filter((s): s is SymbolInfo => s !== null);
 }
 
 /** Live candles: seeds with history, then streams updates. */
