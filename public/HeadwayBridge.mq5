@@ -11,6 +11,7 @@ input int SendEverySeconds = 3;
 
 ENUM_TIMEFRAMES Frames[] = { PERIOD_M1, PERIOD_M5, PERIOD_M15, PERIOD_H1 };
 int FrameSeconds[] = { 60, 300, 900, 3600 };
+bool FirstPush = true;
 
 string JsonEscape(string value)
 {
@@ -22,7 +23,8 @@ string JsonEscape(string value)
 bool SendCandles(string brokerSymbol, string publicSymbol, ENUM_TIMEFRAMES timeframe, int seconds)
 {
    MqlRates rates[];
-   int copied = CopyRates(brokerSymbol, timeframe, 0, HistoryBars, rates);
+   int requestedBars = FirstPush ? HistoryBars : 2;
+   int copied = CopyRates(brokerSymbol, timeframe, 0, requestedBars, rates);
    if(copied <= 0)
    {
       Print("No rates for ", brokerSymbol, " / ", EnumToString(timeframe), ". Error: ", GetLastError());
@@ -76,6 +78,7 @@ void PushAll()
       for(int frameIndex = 0; frameIndex < ArraySize(Frames); frameIndex++)
          SendCandles(brokers[symbolIndex], publicNames[symbolIndex], Frames[frameIndex], FrameSeconds[frameIndex]);
    }
+   FirstPush = false;
 }
 
 int OnInit()

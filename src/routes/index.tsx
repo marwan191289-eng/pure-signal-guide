@@ -143,14 +143,16 @@ function Dashboard() {
             <span className="text-xs text-muted-foreground">الإطار الزمني</span>
             <div className="flex gap-1.5">
               {TIMEFRAMES.map((t) => (
-                <button
+                <Button
                   key={t.value}
+                  type="button"
+                  variant="outline"
                   onClick={() => setGranularity(t.value)}
                   className="chip"
                   data-active={granularity === t.value}
                 >
                   {t.label}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
