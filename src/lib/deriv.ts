@@ -271,16 +271,55 @@ export function streamCandles(
       }
     },
   );
+  return () => {
+    stopStream();
+    stopFallback?.();
+  };
 }
 
-/** Live tick stream for the price ticker. */
+/** Live tick stream for the price ticker (polls when streaming is blocked). */
 export function streamTicks(
   symbol: string,
   onTick: (t: { epoch: number; quote: number }) => void,
 ): () => void {
-  return deriv().subscribe({ ticks: symbol }, (msg) => {
+  let stopFallback: (() => void) | null = null;
+  const startFallback = () => {
+    if (stopFallback) return;
+    let stopped = false;
+    const run = async () => {
+      try {
+        const res = await deriv().send<{ history: { times: number[]; prices: number[] } }>({
+          ticks_history: symbol,
+          count: 1,
+          end: "latest",
+          style: "ticks",
+        });
+        const t = res.history?.times?.[0];
+        const p = res.history?.prices?.[0];
+        if (!stopped && t !== undefined && p !== undefined) onTick({ epoch: t, quote: +p });
+      } catch {
+        /* keep polling */
+      }
+    };
+    void run();
+    const id = setInterval(run, 1500);
+    stopFallback = () => {
+      stopped = true;
+      clearInterval(id);
+    };
+  };
+
+  const stopStream = deriv().subscribe({ ticks: symbol }, (msg) => {
+    if (msg.error) {
+      startFallback();
+      return;
+    }
     if (msg.msg_type === "tick" && msg.tick) {
       onTick({ epoch: msg.tick.epoch, quote: +msg.tick.quote });
     }
   });
+  return () => {
+    stopStream();
+    stopFallback?.();
+  };
 }
