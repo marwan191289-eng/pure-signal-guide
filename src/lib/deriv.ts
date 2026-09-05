@@ -181,7 +181,50 @@ export async function probeAvailableSymbols(): Promise<SymbolInfo[]> {
   return checks.filter((s): s is SymbolInfo => s !== null);
 }
 
-/** Live candles: seeds with history, then streams updates. */
+const mapCandles = (arr: any[]): Candle[] =>
+  arr.map((c) => ({
+    epoch: c.epoch,
+    open: +c.open,
+    high: +c.high,
+    low: +c.low,
+    close: +c.close,
+  }));
+
+/**
+ * Polling fallback: some regions block streaming subscriptions while plain
+ * history requests still return real market data.
+ */
+function pollCandles(
+  symbol: string,
+  granularity: number,
+  count: number,
+  onCandles: (candles: Candle[]) => void,
+): () => void {
+  let stopped = false;
+  const tick = async () => {
+    try {
+      const res = await deriv().send<{ candles: any[] }>({
+        ticks_history: symbol,
+        adjust_start_time: 1,
+        count,
+        end: "latest",
+        style: "candles",
+        granularity,
+      });
+      if (!stopped && res.candles) onCandles(mapCandles(res.candles));
+    } catch {
+      /* keep polling */
+    }
+  };
+  void tick();
+  const id = setInterval(tick, 2000);
+  return () => {
+    stopped = true;
+    clearInterval(id);
+  };
+}
+
+/** Live candles: streams updates, falling back to polling when blocked. */
 export function streamCandles(
   symbol: string,
   granularity: number,
@@ -189,7 +232,8 @@ export function streamCandles(
   onCandles: (candles: Candle[]) => void,
 ): () => void {
   let series: Candle[] = [];
-  return deriv().subscribe(
+  let stopFallback: (() => void) | null = null;
+  const stopStream = deriv().subscribe(
     {
       ticks_history: symbol,
       adjust_start_time: 1,
@@ -199,7 +243,10 @@ export function streamCandles(
       granularity,
     },
     (msg) => {
-      if (msg.error) return;
+      if (msg.error) {
+        if (!stopFallback) stopFallback = pollCandles(symbol, granularity, count, onCandles);
+        return;
+      }
       if (msg.msg_type === "candles") {
         series = msg.candles.map((c: any) => ({
           epoch: c.epoch,
