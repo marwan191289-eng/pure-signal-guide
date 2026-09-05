@@ -59,29 +59,39 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  --color-surface: var(--surface);
+  --color-bull: var(--bull);
+  --color-bear: var(--bear);
+  --color-bear-foreground: var(--bear-foreground);
+  --font-sans: "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
 }
 
 :root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.129 0.042 264.695);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.129 0.042 264.695);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.129 0.042 264.695);
-  --primary: oklch(0.208 0.042 265.755);
-  --primary-foreground: oklch(0.984 0.003 247.858);
-  --secondary: oklch(0.968 0.007 247.896);
-  --secondary-foreground: oklch(0.208 0.042 265.755);
-  --muted: oklch(0.968 0.007 247.896);
-  --muted-foreground: oklch(0.554 0.046 257.417);
-  --accent: oklch(0.968 0.007 247.896);
-  --accent-foreground: oklch(0.208 0.042 265.755);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(0.929 0.013 255.508);
-  --input: oklch(0.929 0.013 255.508);
-  --ring: oklch(0.704 0.04 256.788);
+  --radius: 0.75rem;
+  --background: oklch(0.17 0.018 250);
+  --foreground: oklch(0.95 0.008 250);
+  --surface: oklch(0.215 0.02 250);
+  --card: oklch(0.215 0.02 250);
+  --card-foreground: oklch(0.95 0.008 250);
+  --popover: oklch(0.215 0.02 250);
+  --popover-foreground: oklch(0.95 0.008 250);
+  --primary: oklch(0.78 0.16 85);
+  --primary-foreground: oklch(0.2 0.03 85);
+  --secondary: oklch(0.27 0.024 250);
+  --secondary-foreground: oklch(0.95 0.008 250);
+  --muted: oklch(0.28 0.022 250);
+  --muted-foreground: oklch(0.7 0.02 250);
+  --accent: oklch(0.78 0.16 85);
+  --accent-foreground: oklch(0.2 0.03 85);
+  --bull: oklch(0.75 0.17 155);
+  --bear: oklch(0.64 0.21 22);
+  --bear-foreground: oklch(0.86 0.1 22);
+  --destructive: oklch(0.64 0.21 22);
+  --destructive-foreground: oklch(0.96 0.01 250);
+  --border: oklch(0.32 0.022 250);
+  --input: oklch(0.32 0.022 250);
+  --ring: oklch(0.78 0.16 85);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -140,5 +150,122 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+  }
+}
+
+@layer components {
+  .panel {
+    background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-xl);
+    overflow: hidden;
+  }
+
+  .field {
+    background-color: var(--color-background);
+    border: 1px solid var(--color-border);
+    color: var(--color-foreground);
+    border-radius: var(--radius-md);
+    padding: 0.55rem 0.75rem;
+    font-size: 0.875rem;
+    outline: none;
+  }
+  .field:focus {
+    border-color: var(--color-ring);
+  }
+
+  .chip {
+    background-color: var(--color-background);
+    border: 1px solid var(--color-border);
+    color: var(--color-muted-foreground);
+    border-radius: var(--radius-md);
+    padding: 0.55rem 0.85rem;
+    font-size: 0.8125rem;
+    transition: all 0.15s ease;
+  }
+  .chip:hover {
+    color: var(--color-foreground);
+  }
+  .chip[data-active="true"] {
+    background-color: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+    font-weight: 600;
+  }
+
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    color: var(--color-muted-foreground);
+  }
+  .status-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background-color: var(--color-muted-foreground);
+  }
+  .status-pill[data-state="open"] {
+    color: var(--color-bull);
+    border-color: color-mix(in oklab, var(--color-bull) 40%, transparent);
+  }
+  .status-pill[data-state="open"] .status-dot {
+    background-color: var(--color-bull);
+    animation: pulse-dot 1.6s ease-in-out infinite;
+  }
+  .status-pill[data-state="connecting"] .status-dot {
+    background-color: var(--color-primary);
+    animation: pulse-dot 0.9s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.25; }
+  }
+
+  .signal {
+    border-radius: var(--radius-lg);
+    padding: 1rem;
+    text-align: center;
+    font-size: 1.125rem;
+    font-weight: 700;
+    border: 1px solid var(--color-border);
+    color: var(--color-muted-foreground);
+    background-color: color-mix(in oklab, var(--color-muted) 50%, transparent);
+  }
+  .signal[data-dir="buy"] {
+    color: var(--color-bull);
+    border-color: color-mix(in oklab, var(--color-bull) 45%, transparent);
+    background-color: color-mix(in oklab, var(--color-bull) 12%, transparent);
+  }
+  .signal[data-dir="sell"] {
+    color: var(--color-bear);
+    border-color: color-mix(in oklab, var(--color-bear) 45%, transparent);
+    background-color: color-mix(in oklab, var(--color-bear) 12%, transparent);
+  }
+
+  .reason {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    padding-inline-start: 0.75rem;
+    border-inline-start: 3px solid var(--color-border);
+    color: var(--color-muted-foreground);
+  }
+  .reason[data-tone="up"] { border-inline-start-color: var(--color-bull); }
+  .reason[data-tone="down"] { border-inline-start-color: var(--color-bear); }
+
+  .metric {
+    background-color: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem;
+  }
+  .metric[data-highlight="true"] {
+    border-color: color-mix(in oklab, var(--color-primary) 55%, transparent);
+    background-color: color-mix(in oklab, var(--color-primary) 8%, transparent);
   }
 }
