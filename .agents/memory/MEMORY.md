@@ -1,0 +1,1 @@
+- [Deriv live symbol discovery](deriv-live-data.md) — verify target volatility symbols with real history requests when Deriv’s public catalogue is empty.

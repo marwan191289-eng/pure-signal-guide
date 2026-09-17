@@ -1,13 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
-import { Activity, BarChart3, Search, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Activity, BarChart3, RefreshCw, Search, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PriceChart } from "@/components/PriceChart";
 import {
   deriv,
+  loadAvailableSymbols,
   streamCandles,
   streamTicks,
-  SYNTHETIC_SYMBOLS,
   type Candle,
   type ConnState,
   type SymbolInfo,
@@ -34,10 +34,6 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
-const WATCHLIST = SYNTHETIC_SYMBOLS.filter(
-  (item) => /^R_(10|15|25|30|50|75|90|100)$/.test(item.symbol) || /^1HZ(10|15|25|30|50|75|90|100)V$/.test(item.symbol),
-);
-
 const TIMEFRAMES = [
   { label: "1د", value: 60 },
   { label: "5د", value: 300 },
@@ -49,6 +45,8 @@ type Quote = { price: number; previous: number; epoch: number };
 
 function Dashboard() {
   const [active, setActive] = useState("R_10");
+  const [watchlist, setWatchlist] = useState<SymbolInfo[]>([]);
+  const [catalogState, setCatalogState] = useState<"loading" | "ready" | "error">("loading");
   const [granularity, setGranularity] = useState(60);
   const [candles, setCandles] = useState<Candle[]>([]);
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
@@ -58,8 +56,27 @@ function Dashboard() {
 
   useEffect(() => deriv().onState(setConnection), []);
 
+  const refreshCatalog = useCallback(async () => {
+    setCatalogState("loading");
+    try {
+      const available = await loadAvailableSymbols();
+      setWatchlist(available);
+      setActive((current) =>
+        available.some((item) => item.symbol === current) ? current : (available[0]?.symbol ?? ""),
+      );
+      setCatalogState("ready");
+    } catch {
+      setCatalogState("error");
+      setWatchlist([]);
+    }
+  }, []);
+
   useEffect(() => {
-    const stops = WATCHLIST.map((item) =>
+    void refreshCatalog();
+  }, [refreshCatalog]);
+
+  useEffect(() => {
+    const stops = watchlist.map((item) =>
       streamTicks(item.symbol, ({ quote, epoch }) => {
         setQuotes((current) => {
           const old = current[item.symbol];
@@ -71,9 +88,10 @@ function Dashboard() {
       }),
     );
     return () => stops.forEach((stop) => stop());
-  }, []);
+  }, [watchlist]);
 
   useEffect(() => {
+    if (!active || !watchlist.some((item) => item.symbol === active)) return;
     setCandles([]);
     setDataError(null);
     let received = false;
@@ -83,21 +101,24 @@ function Dashboard() {
       setDataError(null);
     });
     const timeout = window.setTimeout(() => {
-      if (!received) setDataError("لم تصل بيانات هذا المؤشر بعد. يجري إبقاء الحالة واضحة دون عرض أسعار بديلة.");
+      if (!received)
+        setDataError("لم تصل بيانات هذا المؤشر بعد. يجري إبقاء الحالة واضحة دون عرض أسعار بديلة.");
     }, 12000);
     return () => {
       window.clearTimeout(timeout);
       stop();
     };
-  }, [active, granularity]);
+  }, [active, granularity, watchlist]);
 
-  const activeInfo = WATCHLIST.find((item) => item.symbol === active) ?? WATCHLIST[0];
+  const activeInfo = watchlist.find((item) => item.symbol === active);
   const analysis = useMemo(() => analyze(candles), [candles]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (!normalized) return WATCHLIST;
-    return WATCHLIST.filter((item) => `${item.display_name} ${item.symbol}`.toLowerCase().includes(normalized));
-  }, [query]);
+    if (!normalized) return watchlist;
+    return watchlist.filter((item) =>
+      `${item.display_name} ${item.symbol}`.toLowerCase().includes(normalized),
+    );
+  }, [query, watchlist]);
   const visiblePrice = quotes[active]?.price ?? candles.at(-1)?.close;
 
   return (
@@ -114,8 +135,16 @@ function Dashboard() {
             </div>
           </div>
           <div className="status-pill" data-state={connection}>
-            {connection === "open" ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
-            {connection === "open" ? "متصل مباشرة بـ Deriv" : connection === "connecting" ? "جارِ الاتصال" : "الاتصال منقطع"}
+            {connection === "open" ? (
+              <Wifi className="size-3.5" />
+            ) : (
+              <WifiOff className="size-3.5" />
+            )}
+            {connection === "open"
+              ? "متصل مباشرة بـ Deriv"
+              : connection === "connecting"
+                ? "جارِ الاتصال"
+                : "الاتصال منقطع"}
           </div>
         </div>
       </header>
@@ -127,7 +156,11 @@ function Dashboard() {
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-semibold">قائمة المراقبة</h2>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">{WATCHLIST.length} مؤشر تقلب</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {catalogState === "ready"
+                      ? `${watchlist.length} مؤشر متاح فعلياً`
+                      : "التحقق من قائمة Deriv"}
+                  </p>
                 </div>
                 <span className="font-mono text-xs text-primary">LIVE</span>
               </div>
@@ -143,15 +176,43 @@ function Dashboard() {
               </label>
             </div>
             <div className="max-h-[440px] overflow-y-auto lg:max-h-[calc(100vh-190px)]">
-              {filtered.map((item) => (
-                <MarketRow
-                  key={item.symbol}
-                  item={item}
-                  quote={quotes[item.symbol]}
-                  active={item.symbol === active}
-                  onSelect={() => setActive(item.symbol)}
-                />
-              ))}
+              {catalogState === "loading" ? (
+                <div className="space-y-2 p-4">
+                  {[1, 2, 3, 4].map((item) => (
+                    <div key={item} className="h-12 animate-pulse rounded-md bg-muted/50" />
+                  ))}
+                </div>
+              ) : catalogState === "error" ? (
+                <div className="p-5 text-center">
+                  <WifiOff className="mx-auto size-5 text-muted-foreground" />
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    تعذر التحقق من رموز Deriv المتاحة. لا نعرض أي أسعار بديلة.
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 gap-2"
+                    onClick={() => void refreshCatalog()}
+                  >
+                    <RefreshCw className="size-3.5" /> إعادة المحاولة
+                  </Button>
+                </div>
+              ) : filtered.length === 0 ? (
+                <p className="p-5 text-center text-xs text-muted-foreground">
+                  لا توجد مؤشرات متاحة بهذا الاسم.
+                </p>
+              ) : (
+                filtered.map((item) => (
+                  <MarketRow
+                    key={item.symbol}
+                    item={item}
+                    quote={quotes[item.symbol]}
+                    active={item.symbol === active}
+                    onSelect={() => setActive(item.symbol)}
+                  />
+                ))
+              )}
             </div>
           </aside>
 
@@ -163,8 +224,14 @@ function Dashboard() {
                     <span className="market-dot" data-live={quotes[active] ? "true" : "false"} />
                     <span className="font-mono text-xs text-muted-foreground">{active}</span>
                   </div>
-                  <h2 className="text-xl font-bold sm:text-2xl">{activeInfo?.display_name ?? active}</h2>
-                  <p className="mt-1 text-xs text-muted-foreground">بيانات السوق من Deriv مباشرة</p>
+                  <h2 className="text-xl font-bold sm:text-2xl">
+                    {activeInfo?.display_name ?? "لا يوجد مؤشر متاح"}
+                  </h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {activeInfo
+                      ? "بيانات السوق من Deriv مباشرة"
+                      : "تظهر المؤشرات بعد التحقق من توفرها في Deriv"}
+                  </p>
                 </div>
                 <div className="text-left" dir="ltr">
                   <p className="font-mono text-3xl font-semibold tabular-nums sm:text-4xl">
@@ -177,7 +244,11 @@ function Dashboard() {
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <BarChart3 className="size-4 text-primary" />
-                  {candles.length > 0 ? `${candles.length} شمعة حقيقية` : "بانتظار الشموع الحية"}
+                  {candles.length > 0
+                    ? `${candles.length} شمعة حقيقية`
+                    : activeInfo
+                      ? "بانتظار الشموع الحية"
+                      : "لا توجد بيانات للعرض"}
                 </div>
                 <div className="flex gap-1">
                   {TIMEFRAMES.map((frame) => (
@@ -197,7 +268,9 @@ function Dashboard() {
               </div>
 
               {dataError ? (
-                <div className="m-4 border border-primary/40 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">{dataError}</div>
+                <div className="m-4 border border-primary/40 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">
+                  {dataError}
+                </div>
               ) : (
                 <div className="px-2 py-4 sm:px-4">
                   <PriceChart candles={candles} direction={analysis?.direction ?? "neutral"} />
@@ -214,7 +287,11 @@ function Dashboard() {
                 {analysis ? (
                   <>
                     <div className="signal" data-dir={analysis.direction}>
-                      {analysis.direction === "buy" ? "اتجاه صاعد" : analysis.direction === "sell" ? "اتجاه هابط" : "اتجاه محايد"}
+                      {analysis.direction === "buy"
+                        ? "اتجاه صاعد"
+                        : analysis.direction === "sell"
+                          ? "اتجاه هابط"
+                          : "اتجاه محايد"}
                     </div>
                     <div className="mt-4 flex items-center justify-between text-xs">
                       <span className="text-muted-foreground">قوة التوافق</span>
@@ -228,14 +305,20 @@ function Dashboard() {
                     </div>
                     <ul className="mt-5 space-y-2.5">
                       {analysis.reasons.map((reason) => (
-                        <li key={reason.text} className="reason" data-tone={reason.weight > 0 ? "up" : reason.weight < 0 ? "down" : "flat"}>
+                        <li
+                          key={reason.text}
+                          className="reason"
+                          data-tone={reason.weight > 0 ? "up" : reason.weight < 0 ? "down" : "flat"}
+                        >
                           {reason.text}
                         </li>
                       ))}
                     </ul>
                   </>
                 ) : (
-                  <p className="py-8 text-center text-sm leading-6 text-muted-foreground">نحتاج إلى 60 شمعة حقيقية على الأقل قبل إصدار قراءة.</p>
+                  <p className="py-8 text-center text-sm leading-6 text-muted-foreground">
+                    نحتاج إلى 60 شمعة حقيقية على الأقل قبل إصدار قراءة.
+                  </p>
                 )}
               </section>
 
@@ -247,11 +330,17 @@ function Dashboard() {
                   <Metric label="EMA 21" value={analysis ? formatPrice(analysis.ema21) : "—"} />
                   <Metric label="EMA 50" value={analysis ? formatPrice(analysis.ema50) : "—"} />
                   <Metric label="ATR 14" value={analysis ? formatPrice(analysis.atr14) : "—"} />
-                  <Metric label="الزخم / 10" value={analysis ? `${signed(analysis.momentumPct)}%` : "—"} />
+                  <Metric
+                    label="الزخم / 10"
+                    value={analysis ? `${signed(analysis.momentumPct)}%` : "—"}
+                  />
                 </div>
                 <div className="mt-5 flex gap-3 border-t border-border pt-4 text-xs leading-6 text-muted-foreground">
                   <ShieldCheck className="mt-1 size-4 shrink-0 text-primary" />
-                  <p>كل قراءة محسوبة من شموع Deriv المستلمة فعلياً. التحليل احتمالي وليس ضماناً لنتيجة الصفقة.</p>
+                  <p>
+                    كل قراءة محسوبة من شموع Deriv المستلمة فعلياً. التحليل احتمالي وليس ضماناً
+                    لنتيجة الصفقة.
+                  </p>
                 </div>
               </section>
             </div>
@@ -262,20 +351,42 @@ function Dashboard() {
   );
 }
 
-function MarketRow({ item, quote, active, onSelect }: { item: SymbolInfo; quote?: Quote; active: boolean; onSelect: () => void }) {
+function MarketRow({
+  item,
+  quote,
+  active,
+  onSelect,
+}: {
+  item: SymbolInfo;
+  quote: Quote | undefined;
+  active: boolean;
+  onSelect: () => void;
+}) {
   const delta = quote ? quote.price - quote.previous : 0;
   return (
-    <Button type="button" variant="ghost" className="market-row h-auto rounded-none" data-active={active} onClick={onSelect}>
+    <Button
+      type="button"
+      variant="ghost"
+      className="market-row h-auto rounded-none"
+      data-active={active}
+      onClick={onSelect}
+    >
       <span className="min-w-0">
         <span className="flex items-center gap-2">
           <span className="market-dot" data-live={quote ? "true" : "false"} />
           <span className="truncate text-xs font-medium">{item.display_name}</span>
         </span>
-        <span className="mt-1 block text-start font-mono text-[10px] text-muted-foreground">{item.symbol}</span>
+        <span className="mt-1 block text-start font-mono text-[10px] text-muted-foreground">
+          {item.symbol}
+        </span>
       </span>
       <span className="text-left" dir="ltr">
-        <span className="block font-mono text-sm font-semibold tabular-nums">{quote ? formatPrice(quote.price) : "—"}</span>
-        <span className={`block font-mono text-[10px] ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}>
+        <span className="block font-mono text-sm font-semibold tabular-nums">
+          {quote ? formatPrice(quote.price) : "—"}
+        </span>
+        <span
+          className={`block font-mono text-[10px] ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}
+        >
           {quote ? (delta > 0 ? "▲ مباشر" : delta < 0 ? "▼ مباشر" : "• مباشر") : "بانتظار البيانات"}
         </span>
       </span>
@@ -283,12 +394,14 @@ function MarketRow({ item, quote, active, onSelect }: { item: SymbolInfo; quote?
   );
 }
 
-function QuoteMove({ quote }: { quote?: Quote }) {
+function QuoteMove({ quote }: { quote: Quote | undefined }) {
   if (!quote) return <p className="mt-1 text-xs text-muted-foreground">بانتظار أول سعر حقيقي</p>;
   const delta = quote.price - quote.previous;
   const pct = quote.previous === 0 ? 0 : (delta / quote.previous) * 100;
   return (
-    <p className={`mt-1 font-mono text-xs ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}>
+    <p
+      className={`mt-1 font-mono text-xs ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}
+    >
       {delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} {signed(pct)}% آخر حركة
     </p>
   );
@@ -298,7 +411,9 @@ function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
       <p className="text-[11px] text-muted-foreground">{label}</p>
-      <p className="mt-1.5 truncate font-mono text-base font-semibold tabular-nums" dir="ltr">{value}</p>
+      <p className="mt-1.5 truncate font-mono text-base font-semibold tabular-nums" dir="ltr">
+        {value}
+      </p>
     </div>
   );
 }

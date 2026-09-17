@@ -23,6 +23,14 @@ type Pending = {
   reject: (e: Error) => void;
 };
 
+type LiveSubscription = {
+  request: Record<string, unknown>;
+  callback: (msg: any) => void;
+  requestId: number | null;
+  subscriptionId: string | null;
+  stopped: boolean;
+};
+
 const ENDPOINT = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 
 export type ConnState = "connecting" | "open" | "closed";
@@ -31,8 +39,13 @@ class DerivClient {
   private ws: WebSocket | null = null;
   private reqId = 1;
   private pending = new Map<number, Pending>();
-  private subs = new Map<number, (msg: any) => void>();
-  private openWaiters: Array<() => void> = [];
+  private subscriptions = new Map<number, LiveSubscription>();
+  private connectPromise: Promise<void> | null = null;
+  private connectTimeout: number | null = null;
+  private reconnectTimer: number | null = null;
+  private reconnectAttempt = 0;
+  private nextSubscriptionId = 1;
+  private hasConnected = false;
   private stateListeners = new Set<(s: ConnState) => void>();
   state: ConnState = "closed";
 
@@ -51,29 +64,107 @@ class DerivClient {
 
   private ensure(): Promise<void> {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return Promise.resolve();
-    if (!this.ws || this.ws.readyState === WebSocket.CLOSED) {
-      this.setState("connecting");
+    if (this.connectPromise) return this.connectPromise;
+
+    this.setState("connecting");
+    this.connectPromise = new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(ENDPOINT);
+      let settled = false;
       this.ws = ws;
+      this.connectTimeout = window.setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) {
+          settled = true;
+          reject(new Error("connection timeout"));
+          ws.close();
+        }
+      }, 8000);
       ws.onopen = () => {
+        if (this.connectTimeout !== null) window.clearTimeout(this.connectTimeout);
+        this.connectTimeout = null;
+        settled = true;
+        const reconnecting = this.hasConnected;
+        this.hasConnected = true;
+        this.reconnectAttempt = 0;
         this.setState("open");
-        this.openWaiters.splice(0).forEach((w) => w());
+        this.connectPromise = null;
+        resolve();
+        if (reconnecting) this.resubscribe();
+      };
+      ws.onerror = () => {
+        if (!settled) {
+          settled = true;
+          reject(new Error("connection failed"));
+        }
+        if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.close();
       };
       ws.onclose = () => {
+        if (this.connectTimeout !== null) window.clearTimeout(this.connectTimeout);
+        this.connectTimeout = null;
+        if (!settled) {
+          settled = true;
+          reject(new Error("connection closed"));
+        }
+        if (this.ws === ws) this.ws = null;
+        this.connectPromise = null;
         this.setState("closed");
         this.pending.forEach((p) => p.reject(new Error("connection closed")));
         this.pending.clear();
+        if (this.subscriptions.size > 0) this.scheduleReconnect();
       };
-      ws.onmessage = (ev) => this.handle(JSON.parse(ev.data));
+      ws.onmessage = (ev) => {
+        try {
+          this.handle(JSON.parse(ev.data));
+        } catch {
+          // Ignore malformed frames without taking down the live dashboard.
+        }
+      };
+    }).catch((error) => {
+      this.connectPromise = null;
+      if (this.ws?.readyState !== WebSocket.OPEN) this.ws = null;
+      throw error;
+    });
+    return this.connectPromise;
+  }
+
+  private scheduleReconnect() {
+    if (this.reconnectTimer !== null || this.connectPromise || this.subscriptions.size === 0)
+      return;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(this.reconnectAttempt, 5));
+    this.reconnectAttempt += 1;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      void this.ensure().catch(() => this.scheduleReconnect());
+    }, delay);
+  }
+
+  private resubscribe() {
+    for (const [id, subscription] of this.subscriptions) {
+      subscription.requestId = null;
+      subscription.subscriptionId = null;
+      void this.startSubscription(id);
     }
-    return new Promise((res) => this.openWaiters.push(res));
+  }
+
+  private async startSubscription(id: number) {
+    const subscription = this.subscriptions.get(id);
+    if (!subscription || subscription.stopped) return;
+    await this.ensure();
+    const current = this.subscriptions.get(id);
+    if (!current || current.stopped || current.requestId !== null) return;
+    const requestId = this.reqId++;
+    current.requestId = requestId;
+    this.subscriptions.set(id, current);
+    this.ws!.send(JSON.stringify({ ...current.request, subscribe: 1, req_id: requestId }));
   }
 
   private handle(msg: any) {
     const id = msg.req_id as number | undefined;
     if (id == null) return;
-    const sub = this.subs.get(id);
-    if (sub) sub(msg);
+    const sub = [...this.subscriptions.values()].find((item) => item.requestId === id);
+    if (sub) {
+      if (msg.subscription?.id) sub.subscriptionId = msg.subscription.id;
+      sub.callback(msg);
+    }
     const p = this.pending.get(id);
     if (p) {
       this.pending.delete(id);
@@ -99,25 +190,23 @@ class DerivClient {
 
   /** Streaming request. Returns an unsubscribe function. */
   subscribe(request: Record<string, unknown>, cb: (msg: any) => void): () => void {
-    let req_id = 0;
-    let stopped = false;
-    let subscriptionId: string | null = null;
-
-    this.ensure().then(() => {
-      if (stopped) return;
-      req_id = this.reqId++;
-      this.subs.set(req_id, (msg) => {
-        if (msg.subscription?.id) subscriptionId = msg.subscription.id;
-        cb(msg);
-      });
-      this.ws!.send(JSON.stringify({ ...request, subscribe: 1, req_id }));
+    const id = this.nextSubscriptionId++;
+    this.subscriptions.set(id, {
+      request,
+      callback: cb,
+      requestId: null,
+      subscriptionId: null,
+      stopped: false,
     });
+    void this.startSubscription(id).catch((error) => cb({ error: { message: error.message } }));
 
     return () => {
-      stopped = true;
-      this.subs.delete(req_id);
-      if (subscriptionId && this.ws?.readyState === WebSocket.OPEN) {
-        this.ws.send(JSON.stringify({ forget: subscriptionId }));
+      const subscription = this.subscriptions.get(id);
+      if (!subscription) return;
+      subscription.stopped = true;
+      this.subscriptions.delete(id);
+      if (subscription.subscriptionId && this.ws?.readyState === WebSocket.OPEN) {
+        this.ws.send(JSON.stringify({ forget: subscription.subscriptionId }));
       }
     };
   }
@@ -129,7 +218,7 @@ export function deriv(): DerivClient {
   return client;
 }
 
-/** Catalogue of real synthetic indices served by the data provider. */
+/** Known Deriv volatility symbols. The live API decides which ones are available. */
 export const SYNTHETIC_SYMBOLS: SymbolInfo[] = [
   { symbol: "R_10", display_name: "مؤشر التقلب 10", group: "مؤشرات التقلب (كل ثانيتين)" },
   { symbol: "R_15", display_name: "مؤشر التقلب 15", group: "مؤشرات التقلب (كل ثانيتين)" },
@@ -147,41 +236,30 @@ export const SYNTHETIC_SYMBOLS: SymbolInfo[] = [
   { symbol: "1HZ75V", display_name: "مؤشر التقلب 75 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
   { symbol: "1HZ90V", display_name: "مؤشر التقلب 90 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
   { symbol: "1HZ100V", display_name: "مؤشر التقلب 100 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
-  { symbol: "BOOM300N", display_name: "بوم 300", group: "بوم وكراش" },
-  { symbol: "BOOM500", display_name: "بوم 500", group: "بوم وكراش" },
-  { symbol: "BOOM1000", display_name: "بوم 1000", group: "بوم وكراش" },
-  { symbol: "CRASH300N", display_name: "كراش 300", group: "بوم وكراش" },
-  { symbol: "CRASH500", display_name: "كراش 500", group: "بوم وكراش" },
-  { symbol: "CRASH1000", display_name: "كراش 1000", group: "بوم وكراش" },
-  { symbol: "JD10", display_name: "مؤشر القفز 10", group: "مؤشرات القفز" },
-  { symbol: "JD25", display_name: "مؤشر القفز 25", group: "مؤشرات القفز" },
-  { symbol: "JD50", display_name: "مؤشر القفز 50", group: "مؤشرات القفز" },
-  { symbol: "JD75", display_name: "مؤشر القفز 75", group: "مؤشرات القفز" },
-  { symbol: "JD100", display_name: "مؤشر القفز 100", group: "مؤشرات القفز" },
-  { symbol: "stpRNG", display_name: "مؤشر الخطوة 100", group: "مؤشرات أخرى" },
-  { symbol: "RDBULL", display_name: "الثور الصاعد", group: "مؤشرات أخرى" },
-  { symbol: "RDBEAR", display_name: "الدب الهابط", group: "مؤشرات أخرى" },
 ];
 
-/** Keeps only the symbols the provider actually serves this connection. */
-export async function probeAvailableSymbols(): Promise<SymbolInfo[]> {
+/**
+ * Returns only volatility indices that answer a real Deriv history request.
+ * Some Deriv sessions currently return an empty active_symbols catalogue, so
+ * the target symbols must be verified individually instead of assumed.
+ */
+export async function loadAvailableSymbols(): Promise<SymbolInfo[]> {
   const checks = await Promise.all(
-    SYNTHETIC_SYMBOLS.map(async (s) => {
+    SYNTHETIC_SYMBOLS.map(async (item) => {
       try {
         await deriv().send({
-          ticks_history: s.symbol,
+          ticks_history: item.symbol,
           count: 1,
           end: "latest",
-          style: "candles",
-          granularity: 60,
+          style: "ticks",
         });
-        return s;
+        return item;
       } catch {
         return null;
       }
     }),
   );
-  return checks.filter((s): s is SymbolInfo => s !== null);
+  return checks.filter((item): item is SymbolInfo => item !== null);
 }
 
 const mapCandles = (arr: any[]): Candle[] =>

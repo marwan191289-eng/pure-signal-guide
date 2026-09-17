@@ -12,7 +12,10 @@ export function PriceChart({ candles, direction }: Props) {
     const data = candles.slice(-120);
     if (data.length < 5) return null;
     const closes = data.map((c) => c.close);
-    const e21 = ema(candles.map((c) => c.close), 21).slice(-data.length);
+    const e21 = ema(
+      candles.map((c) => c.close),
+      21,
+    ).slice(-data.length);
     const lows = data.map((c) => c.low);
     const highs = data.map((c) => c.high);
     const min = Math.min(...lows);
@@ -22,7 +25,9 @@ export function PriceChart({ candles, direction }: Props) {
     const H = 260;
     const x = (i: number) => (i / (data.length - 1)) * W;
     const y = (v: number) => H - ((v - min) / range) * H;
-    const path = closes.map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    const path = closes
+      .map((v, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`)
+      .join(" ");
     const area = `${path} L${W},${H} L0,${H} Z`;
     const emaPath = e21
       .map((v, i) => (Number.isNaN(v) ? null : `${x(i).toFixed(1)},${y(v).toFixed(1)}`))
@@ -36,10 +41,18 @@ export function PriceChart({ candles, direction }: Props) {
   }
 
   const stroke =
-    direction === "buy" ? "var(--color-bull)" : direction === "sell" ? "var(--color-bear)" : "var(--color-muted-foreground)";
+    direction === "buy"
+      ? "var(--color-bull)"
+      : direction === "sell"
+        ? "var(--color-bear)"
+        : "var(--color-muted-foreground)";
 
   return (
-    <svg viewBox={`0 0 ${view.W} ${view.H}`} className="h-[260px] w-full" preserveAspectRatio="none">
+    <svg
+      viewBox={`0 0 ${view.W} ${view.H}`}
+      className="h-[260px] w-full"
+      preserveAspectRatio="none"
+    >
       <defs>
         <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor={stroke} stopOpacity="0.28" />
@@ -59,7 +72,14 @@ export function PriceChart({ candles, direction }: Props) {
       ))}
       <path d={view.area} fill="url(#fill)" />
       {view.emaPath && (
-        <path d={view.emaPath} fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeDasharray="6 5" opacity="0.8" />
+        <path
+          d={view.emaPath}
+          fill="none"
+          stroke="var(--color-accent)"
+          strokeWidth="2"
+          strokeDasharray="6 5"
+          opacity="0.8"
+        />
       )}
       <path d={view.path} fill="none" stroke={stroke} strokeWidth="2.5" strokeLinejoin="round" />
     </svg>
