@@ -1,30 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import type { Candle } from "@/lib/deriv";
-import { analyze } from "@/lib/indicators";
-import { PriceChart } from "@/components/PriceChart";
+import { Activity, BarChart3, Search, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Download, Radio, Server } from "lucide-react";
+import { PriceChart } from "@/components/PriceChart";
 import {
-  fetchHeadwayCandles,
-  HEADWAY_SYMBOLS,
-  subscribeToHeadway,
-  type HeadwaySymbol,
-} from "@/lib/headway";
+  deriv,
+  streamCandles,
+  streamTicks,
+  SYNTHETIC_SYMBOLS,
+  type Candle,
+  type ConnState,
+  type SymbolInfo,
+} from "@/lib/deriv";
+import { analyze } from "@/lib/indicators";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "رادار المؤشرات الاصطناعية — إشارات لحظية حقيقية" },
+      { title: "Deriv Pulse — مؤشرات اصطناعية مباشرة" },
       {
         name: "description",
-        content:
-          "لوحة تحليل لحظية لمؤشري Headway VOL_10 وVOL_20، ببيانات MT5 حقيقية ومؤشرات فنية محسوبة بشفافية.",
+        content: "أسعار حية وتحليل فني احترافي لمؤشرات التقلب من Deriv مباشرة، دون محاكاة.",
       },
-      { property: "og:title", content: "رادار المؤشرات الاصطناعية — إشارات لحظية حقيقية" },
+      { property: "og:title", content: "Deriv Pulse — مؤشرات اصطناعية مباشرة" },
       {
         property: "og:description",
-        content: "أسعار MT5 مباشرة ومؤشرات فنية محسوبة لحظياً لمؤشري Headway VOL_10 وVOL_20.",
+        content: "راقب مؤشرات Deriv الاصطناعية وحلل الاتجاه والزخم من بيانات السوق الحية.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -33,280 +34,281 @@ export const Route = createFileRoute("/")({
   component: Dashboard,
 });
 
+const WATCHLIST = SYNTHETIC_SYMBOLS.filter(
+  (item) => /^R_(10|15|25|30|50|75|90|100)$/.test(item.symbol) || /^1HZ(10|15|25|30|50|75|90|100)V$/.test(item.symbol),
+);
+
 const TIMEFRAMES = [
-  { label: "دقيقة", value: 60 },
-  { label: "5 دقائق", value: 300 },
-  { label: "15 دقيقة", value: 900 },
-  { label: "ساعة", value: 3600 },
+  { label: "1د", value: 60 },
+  { label: "5د", value: 300 },
+  { label: "15د", value: 900 },
+  { label: "1س", value: 3600 },
 ];
 
+type Quote = { price: number; previous: number; epoch: number };
+
 function Dashboard() {
-  const [active, setActive] = useState<HeadwaySymbol>("VOL_10");
+  const [active, setActive] = useState("R_10");
   const [granularity, setGranularity] = useState(60);
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [receivedAt, setReceivedAt] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [now, setNow] = useState(() => Date.now());
+  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [connection, setConnection] = useState<ConnState>("connecting");
+  const [dataError, setDataError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => deriv().onState(setConnection), []);
 
   useEffect(() => {
-    let alive = true;
+    const stops = WATCHLIST.map((item) =>
+      streamTicks(item.symbol, ({ quote, epoch }) => {
+        setQuotes((current) => {
+          const old = current[item.symbol];
+          return {
+            ...current,
+            [item.symbol]: { price: quote, previous: old?.price ?? quote, epoch },
+          };
+        });
+      }),
+    );
+    return () => stops.forEach((stop) => stop());
+  }, []);
+
+  useEffect(() => {
     setCandles([]);
-    setReceivedAt(null);
-    setLoadError(null);
-    const load = async () => {
-      try {
-        const snapshot = await fetchHeadwayCandles(active, granularity);
-        if (!alive) return;
-        setCandles(snapshot.candles);
-        setReceivedAt(snapshot.receivedAt);
-        setLoadError(null);
-      } catch (error) {
-        if (alive) setLoadError(error instanceof Error ? error.message : "تعذر تحميل البيانات.");
-      }
-    };
-    void load();
-    const stop = subscribeToHeadway(active, granularity, () => void load());
+    setDataError(null);
+    let received = false;
+    const stop = streamCandles(active, granularity, 240, (next) => {
+      received = true;
+      setCandles(next);
+      setDataError(null);
+    });
+    const timeout = window.setTimeout(() => {
+      if (!received) setDataError("لم تصل بيانات هذا المؤشر بعد. يجري إبقاء الحالة واضحة دون عرض أسعار بديلة.");
+    }, 12000);
     return () => {
-      alive = false;
+      window.clearTimeout(timeout);
       stop();
     };
   }, [active, granularity]);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const info = HEADWAY_SYMBOLS.find((s) => s.symbol === active);
+  const activeInfo = WATCHLIST.find((item) => item.symbol === active) ?? WATCHLIST[0];
   const analysis = useMemo(() => analyze(candles), [candles]);
-  const price = candles.at(-1)?.close;
-  const tfLabel = TIMEFRAMES.find((t) => t.value === granularity)?.label ?? "";
-  const ageSeconds = receivedAt ? Math.max(0, Math.floor((now - Date.parse(receivedAt)) / 1000)) : null;
-  const connectionState = ageSeconds == null ? "closed" : ageSeconds <= 10 ? "open" : "stale";
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return WATCHLIST;
+    return WATCHLIST.filter((item) => `${item.display_name} ${item.symbol}`.toLowerCase().includes(normalized));
+  }, [query]);
+  const visiblePrice = quotes[active]?.price ?? candles.at(-1)?.close;
 
   return (
     <div dir="rtl" className="min-h-screen bg-background text-foreground">
-      <header className="border-b border-border bg-surface/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-4">
-          <div>
-            <h1 className="text-lg font-bold tracking-tight">رادار المؤشرات الاصطناعية</h1>
-            <p className="text-xs text-muted-foreground">
-              أسعار حقيقية مباشرة — كل رقم هنا محسوب من بيانات السوق الفعلية، بلا أي محاكاة
-            </p>
+      <header className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-4 py-3 sm:px-6">
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 place-items-center rounded-md bg-primary text-primary-foreground">
+              <Activity className="size-5" />
+            </span>
+            <div>
+              <h1 className="text-base font-bold sm:text-lg">Deriv Pulse</h1>
+              <p className="text-[11px] text-muted-foreground">رادار المؤشرات الاصطناعية المباشر</p>
+            </div>
           </div>
-          <span className="status-pill" data-state={connectionState}>
-            <span className="status-dot" />
-            {connectionState === "open"
-              ? "MT5 متصل مباشرة"
-              : connectionState === "stale"
-                ? `آخر إرسال قبل ${ageSeconds} ثانية`
-                : "بانتظار جسر MT5"}
-          </span>
+          <div className="status-pill" data-state={connection}>
+            {connection === "open" ? <Wifi className="size-3.5" /> : <WifiOff className="size-3.5" />}
+            {connection === "open" ? "متصل مباشرة بـ Deriv" : connection === "connecting" ? "جارِ الاتصال" : "الاتصال منقطع"}
+          </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-5 py-6">
-        {loadError ? (
-          <div className="mb-6 rounded-xl border border-bear/40 bg-bear/10 p-4 text-sm text-bear-foreground">
-            {loadError}
-          </div>
-        ) : candles.length === 0 ? (
-          <div className="mb-6 border-y border-primary/40 bg-primary/10 px-5 py-5 text-sm leading-7 text-foreground">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <p className="font-semibold">بانتظار أول إرسال حقيقي من Headway MT5</p>
-                <p className="text-muted-foreground">لا يعرض التطبيق أي سعر حتى يستلمه فعلياً من حسابك.</p>
+      <main className="mx-auto max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6">
+        <div className="grid items-start gap-4 lg:grid-cols-[310px_minmax(0,1fr)]">
+          <aside className="panel lg:sticky lg:top-20">
+            <div className="border-b border-border p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <h2 className="text-sm font-semibold">قائمة المراقبة</h2>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">{WATCHLIST.length} مؤشر تقلب</p>
+                </div>
+                <span className="font-mono text-xs text-primary">LIVE</span>
               </div>
-              <Button asChild>
-                <a href="/HeadwayBridge.mq5" download>
-                  <Download /> تنزيل جسر MT5
-                </a>
-              </Button>
+              <label className="relative block">
+                <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  className="field w-full pe-9"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="ابحث عن مؤشر..."
+                  aria-label="ابحث عن مؤشر"
+                />
+              </label>
             </div>
-          </div>
-        ) : null}
-
-        <div className="mb-6 flex flex-wrap items-end gap-3">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-xs text-muted-foreground">المؤشر</span>
-            <select
-              className="field min-w-56"
-              value={active}
-               onChange={(e) => setActive(e.target.value as HeadwaySymbol)}
-            >
-              {HEADWAY_SYMBOLS.map((s) => (
-                <option key={s.symbol} value={s.symbol}>{s.displayName}</option>
-              ))}
-            </select>
-          </label>
-          <div className="flex flex-col gap-1.5">
-            <span className="text-xs text-muted-foreground">الإطار الزمني</span>
-            <div className="flex gap-1.5">
-              {TIMEFRAMES.map((t) => (
-                <Button
-                  key={t.value}
-                  type="button"
-                  variant="outline"
-                  onClick={() => setGranularity(t.value)}
-                  className="chip"
-                  data-active={granularity === t.value}
-                >
-                  {t.label}
-                </Button>
+            <div className="max-h-[440px] overflow-y-auto lg:max-h-[calc(100vh-190px)]">
+              {filtered.map((item) => (
+                <MarketRow
+                  key={item.symbol}
+                  item={item}
+                  quote={quotes[item.symbol]}
+                  active={item.symbol === active}
+                  onSelect={() => setActive(item.symbol)}
+                />
               ))}
             </div>
-          </div>
-        </div>
+          </aside>
 
-        <section className="panel mb-5">
-          <div className="flex flex-wrap items-start justify-between gap-4 p-5 pb-0">
-            <div>
-               <h2 className="text-base font-semibold">{info?.displayName ?? active}</h2>
-              <p className="text-xs text-muted-foreground">
-                {candles.length > 0
-                   ? `${candles.length} شمعة (${tfLabel}) • آخر استقبال ${receivedAt ? new Date(receivedAt).toLocaleTimeString("ar-EG") : "—"}`
-                   : "لا توجد بيانات مستلمة من MT5 بعد"}
-              </p>
-            </div>
-            <div className="text-left">
-              <div className="font-mono text-3xl font-bold tabular-nums">
-                {price != null ? price.toFixed(getDecimals(price)) : "—"}
+          <div className="min-w-0 space-y-4">
+            <section className="panel">
+              <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border p-4 sm:p-5">
+                <div>
+                  <div className="mb-1 flex items-center gap-2">
+                    <span className="market-dot" data-live={quotes[active] ? "true" : "false"} />
+                    <span className="font-mono text-xs text-muted-foreground">{active}</span>
+                  </div>
+                  <h2 className="text-xl font-bold sm:text-2xl">{activeInfo?.display_name ?? active}</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">بيانات السوق من Deriv مباشرة</p>
+                </div>
+                <div className="text-left" dir="ltr">
+                  <p className="font-mono text-3xl font-semibold tabular-nums sm:text-4xl">
+                    {visiblePrice == null ? "—" : formatPrice(visiblePrice)}
+                  </p>
+                  <QuoteMove quote={quotes[active]} />
+                </div>
               </div>
-              {analysis && (
-                <div
-                  className="text-sm font-medium"
-                  style={{
-                    color:
-                      analysis.momentumPct >= 0 ? "var(--color-bull)" : "var(--color-bear)",
-                  }}
-                >
-                  {analysis.momentumPct >= 0 ? "▲" : "▼"} {analysis.momentumPct.toFixed(3)}%
-                  <span className="text-muted-foreground"> / آخر 10 شموع</span>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-5">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <BarChart3 className="size-4 text-primary" />
+                  {candles.length > 0 ? `${candles.length} شمعة حقيقية` : "بانتظار الشموع الحية"}
+                </div>
+                <div className="flex gap-1">
+                  {TIMEFRAMES.map((frame) => (
+                    <Button
+                      key={frame.value}
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="chip min-w-10"
+                      data-active={granularity === frame.value}
+                      onClick={() => setGranularity(frame.value)}
+                    >
+                      {frame.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {dataError ? (
+                <div className="m-4 border border-primary/40 bg-primary/5 p-4 text-sm leading-6 text-muted-foreground">{dataError}</div>
+              ) : (
+                <div className="px-2 py-4 sm:px-4">
+                  <PriceChart candles={candles} direction={analysis?.direction ?? "neutral"} />
                 </div>
               )}
+            </section>
+
+            <div className="grid gap-4 xl:grid-cols-[0.9fr_1.4fr]">
+              <section className="panel p-4 sm:p-5">
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">قراءة الاتجاه</h3>
+                  <span className="text-[11px] text-muted-foreground">تحديث لحظي</span>
+                </div>
+                {analysis ? (
+                  <>
+                    <div className="signal" data-dir={analysis.direction}>
+                      {analysis.direction === "buy" ? "اتجاه صاعد" : analysis.direction === "sell" ? "اتجاه هابط" : "اتجاه محايد"}
+                    </div>
+                    <div className="mt-4 flex items-center justify-between text-xs">
+                      <span className="text-muted-foreground">قوة التوافق</span>
+                      <span className="font-mono font-semibold">{analysis.strength}%</span>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-primary transition-[width]"
+                        style={{ width: `${analysis.strength}%` }}
+                      />
+                    </div>
+                    <ul className="mt-5 space-y-2.5">
+                      {analysis.reasons.map((reason) => (
+                        <li key={reason.text} className="reason" data-tone={reason.weight > 0 ? "up" : reason.weight < 0 ? "down" : "flat"}>
+                          {reason.text}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                ) : (
+                  <p className="py-8 text-center text-sm leading-6 text-muted-foreground">نحتاج إلى 60 شمعة حقيقية على الأقل قبل إصدار قراءة.</p>
+                )}
+              </section>
+
+              <section className="panel p-4 sm:p-5">
+                <h3 className="mb-4 text-sm font-semibold">القياسات الفنية</h3>
+                <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
+                  <Metric label="RSI 14" value={analysis ? analysis.rsi14.toFixed(1) : "—"} />
+                  <Metric label="EMA 9" value={analysis ? formatPrice(analysis.ema9) : "—"} />
+                  <Metric label="EMA 21" value={analysis ? formatPrice(analysis.ema21) : "—"} />
+                  <Metric label="EMA 50" value={analysis ? formatPrice(analysis.ema50) : "—"} />
+                  <Metric label="ATR 14" value={analysis ? formatPrice(analysis.atr14) : "—"} />
+                  <Metric label="الزخم / 10" value={analysis ? `${signed(analysis.momentumPct)}%` : "—"} />
+                </div>
+                <div className="mt-5 flex gap-3 border-t border-border pt-4 text-xs leading-6 text-muted-foreground">
+                  <ShieldCheck className="mt-1 size-4 shrink-0 text-primary" />
+                  <p>كل قراءة محسوبة من شموع Deriv المستلمة فعلياً. التحليل احتمالي وليس ضماناً لنتيجة الصفقة.</p>
+                </div>
+              </section>
             </div>
           </div>
-          <div className="px-2 pb-3 pt-4">
-            <PriceChart candles={candles} direction={analysis?.direction ?? "neutral"} />
-          </div>
-        </section>
-
-        <div className="grid gap-5 lg:grid-cols-3">
-          <section className="panel p-5 lg:col-span-1">
-            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">الإشارة الحالية</h3>
-            {analysis ? (
-              <>
-                <div className="signal" data-dir={analysis.direction}>
-                  {analysis.direction === "buy"
-                    ? "اتجاه صاعد"
-                    : analysis.direction === "sell"
-                      ? "اتجاه هابط"
-                      : "بدون اتجاه واضح"}
-                </div>
-                <div className="mt-4">
-                  <div className="mb-1.5 flex justify-between text-xs text-muted-foreground">
-                    <span>قوة الإشارة</span>
-                    <span className="font-mono">{analysis.strength}%</span>
-                  </div>
-                  <div className="h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{
-                        width: `${analysis.strength}%`,
-                        background:
-                          analysis.direction === "buy"
-                            ? "var(--color-bull)"
-                            : analysis.direction === "sell"
-                              ? "var(--color-bear)"
-                              : "var(--color-muted-foreground)",
-                      }}
-                    />
-                  </div>
-                </div>
-                <ul className="mt-4 space-y-2">
-                  {analysis.reasons.map((r, i) => (
-                    <li key={i} className="reason" data-tone={r.weight > 0 ? "up" : r.weight < 0 ? "down" : "flat"}>
-                      {r.text}
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                بانتظار عدد كافٍ من الشموع الحقيقية لحساب المؤشرات (60 شمعة على الأقل).
-              </p>
-            )}
-          </section>
-
-          <section className="panel p-5 lg:col-span-2">
-            <h3 className="mb-3 text-sm font-semibold text-muted-foreground">القراءات الفنية</h3>
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-              <Metric label="RSI (14)" value={analysis ? analysis.rsi14.toFixed(1) : "—"} />
-              <Metric label="متوسط 9" value={analysis ? analysis.ema9.toFixed(getDecimals(analysis.ema9)) : "—"} />
-              <Metric label="متوسط 21" value={analysis ? analysis.ema21.toFixed(getDecimals(analysis.ema21)) : "—"} />
-              <Metric label="متوسط 50" value={analysis ? analysis.ema50.toFixed(getDecimals(analysis.ema50)) : "—"} />
-              <Metric label="مدى التذبذب ATR" value={analysis ? analysis.atr14.toFixed(4) : "—"} />
-              <Metric label="التذبذب %" value={analysis ? `${analysis.atrPct.toFixed(3)}%` : "—"} />
-            </div>
-
-          </section>
         </div>
-
-        <section className="panel mt-5 p-5">
-          <h3 className="mb-2 text-sm font-semibold">شفافية كاملة</h3>
-          <ul className="space-y-1.5 text-xs leading-relaxed text-muted-foreground">
-            <li>• جميع الأسعار تأتي من منصة MT5 المسجّلة في Headway عبر الجسر الخاص بك، بلا أي توليد أو محاكاة.</li>
-            <li>• كل مؤشر فني (RSI، المتوسطات، ATR) محسوب رياضياً من نفس الشموع المعروضة أمامك.</li>
-            <li>
-              • الإشارة وصف لحالة السوق الآن، وليست وعداً بالمستقبل. هذه المؤشرات عشوائية بتصميمها، ولا
-              توجد أي طريقة تعطي دقة مضمونة في التنبؤ.
-            </li>
-          </ul>
-        </section>
-
-        <section className="mt-5 border-y border-border bg-surface px-5 py-6">
-          <div className="grid gap-5 md:grid-cols-2">
-            <div className="flex gap-3">
-              <Server className="mt-1 size-5 shrink-0 text-primary" />
-              <div>
-                <h3 className="font-semibold">تشغيل الجسر مرة واحدة</h3>
-                <ol className="mt-2 space-y-1 text-xs leading-6 text-muted-foreground">
-                  <li>١. نزّل الملف وافتحه في MetaEditor ثم اضغط Compile.</li>
-                  <li>٢. في MT5 أضف رابط التطبيق إلى قائمة WebRequest المسموح بها.</li>
-                  <li>٣. شغّل HeadwayBridge وأدخل رمز الربط السري في إعداداته.</li>
-                  <li>٤. إن اختلف اسما المؤشرين لدى Headway، اكتبهما كما يظهران في Market Watch.</li>
-                </ol>
-              </div>
-            </div>
-            <div className="flex gap-3">
-              <Radio className="mt-1 size-5 shrink-0 text-bull" />
-              <div>
-                <h3 className="font-semibold">شرط استمرار البيانات</h3>
-                <p className="mt-2 text-xs leading-6 text-muted-foreground">
-                  يجب أن تبقى منصة MT5 مفتوحة ومتصلة بحساب Headway. الأفضل تشغيلها على VPS دائم؛ وستظهر
-                  حالة انقطاع واضحة إذا توقف الإرسال، ولن يستبدل التطبيق البيانات المتوقفة بأرقام وهمية.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
       </main>
     </div>
   );
 }
 
-function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function MarketRow({ item, quote, active, onSelect }: { item: SymbolInfo; quote?: Quote; active: boolean; onSelect: () => void }) {
+  const delta = quote ? quote.price - quote.previous : 0;
   return (
-    <div className="metric" data-highlight={highlight ? "true" : undefined}>
-      <div className="text-[11px] text-muted-foreground">{label}</div>
-      <div className="mt-1 font-mono text-lg font-semibold tabular-nums">{value}</div>
+    <Button type="button" variant="ghost" className="market-row h-auto rounded-none" data-active={active} onClick={onSelect}>
+      <span className="min-w-0">
+        <span className="flex items-center gap-2">
+          <span className="market-dot" data-live={quote ? "true" : "false"} />
+          <span className="truncate text-xs font-medium">{item.display_name}</span>
+        </span>
+        <span className="mt-1 block text-start font-mono text-[10px] text-muted-foreground">{item.symbol}</span>
+      </span>
+      <span className="text-left" dir="ltr">
+        <span className="block font-mono text-sm font-semibold tabular-nums">{quote ? formatPrice(quote.price) : "—"}</span>
+        <span className={`block font-mono text-[10px] ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}>
+          {quote ? (delta > 0 ? "▲ مباشر" : delta < 0 ? "▼ مباشر" : "• مباشر") : "بانتظار البيانات"}
+        </span>
+      </span>
+    </Button>
+  );
+}
+
+function QuoteMove({ quote }: { quote?: Quote }) {
+  if (!quote) return <p className="mt-1 text-xs text-muted-foreground">بانتظار أول سعر حقيقي</p>;
+  const delta = quote.price - quote.previous;
+  const pct = quote.previous === 0 ? 0 : (delta / quote.previous) * 100;
+  return (
+    <p className={`mt-1 font-mono text-xs ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}>
+      {delta > 0 ? "▲" : delta < 0 ? "▼" : "•"} {signed(pct)}% آخر حركة
+    </p>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="metric">
+      <p className="text-[11px] text-muted-foreground">{label}</p>
+      <p className="mt-1.5 truncate font-mono text-base font-semibold tabular-nums" dir="ltr">{value}</p>
     </div>
   );
 }
 
-function getDecimals(v: number) {
-  const abs = Math.abs(v);
-  if (abs >= 1000) return 2;
-  if (abs >= 10) return 3;
-  return 4;
+function formatPrice(value: number) {
+  const absolute = Math.abs(value);
+  const decimals = absolute >= 100000 ? 2 : absolute >= 1000 ? 3 : absolute >= 100 ? 3 : 4;
+  return value.toFixed(decimals);
+}
+
+function signed(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(3)}`;
 }
