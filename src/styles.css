@@ -68,30 +68,30 @@
 }
 
 :root {
-  --radius: 0.75rem;
-  --background: oklch(0.17 0.018 250);
-  --foreground: oklch(0.95 0.008 250);
-  --surface: oklch(0.215 0.02 250);
-  --card: oklch(0.215 0.02 250);
+  --radius: 0.5rem;
+  --background: oklch(0.145 0.015 255);
+  --foreground: oklch(0.96 0.006 250);
+  --surface: oklch(0.19 0.018 255);
+  --card: oklch(0.19 0.018 255);
   --card-foreground: oklch(0.95 0.008 250);
   --popover: oklch(0.215 0.02 250);
   --popover-foreground: oklch(0.95 0.008 250);
-  --primary: oklch(0.78 0.16 85);
-  --primary-foreground: oklch(0.2 0.03 85);
-  --secondary: oklch(0.27 0.024 250);
+  --primary: oklch(0.73 0.16 185);
+  --primary-foreground: oklch(0.13 0.02 185);
+  --secondary: oklch(0.25 0.022 255);
   --secondary-foreground: oklch(0.95 0.008 250);
-  --muted: oklch(0.28 0.022 250);
-  --muted-foreground: oklch(0.7 0.02 250);
-  --accent: oklch(0.78 0.16 85);
-  --accent-foreground: oklch(0.2 0.03 85);
-  --bull: oklch(0.75 0.17 155);
-  --bear: oklch(0.64 0.21 22);
+  --muted: oklch(0.25 0.02 255);
+  --muted-foreground: oklch(0.7 0.015 250);
+  --accent: oklch(0.73 0.16 185);
+  --accent-foreground: oklch(0.13 0.02 185);
+  --bull: oklch(0.76 0.17 155);
+  --bear: oklch(0.67 0.2 25);
   --bear-foreground: oklch(0.86 0.1 22);
   --destructive: oklch(0.64 0.21 22);
   --destructive-foreground: oklch(0.96 0.01 250);
-  --border: oklch(0.32 0.022 250);
-  --input: oklch(0.32 0.022 250);
-  --ring: oklch(0.78 0.16 85);
+  --border: oklch(0.3 0.022 255);
+  --input: oklch(0.3 0.022 255);
+  --ring: oklch(0.73 0.16 185);
   --chart-1: oklch(0.646 0.222 41.116);
   --chart-2: oklch(0.6 0.118 184.704);
   --chart-3: oklch(0.398 0.07 227.392);
@@ -150,6 +150,7 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    min-width: 320px;
   }
 }
 
@@ -159,6 +160,35 @@
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);
     overflow: hidden;
+  }
+
+  .market-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    border-bottom: 1px solid var(--color-border);
+    padding: 0.72rem 0.85rem;
+    text-align: start;
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+  .market-row:last-child { border-bottom: 0; }
+  .market-row:hover { background-color: color-mix(in oklab, var(--color-primary) 7%, transparent); }
+  .market-row[data-active="true"] {
+    background-color: color-mix(in oklab, var(--color-primary) 11%, transparent);
+    box-shadow: inset 3px 0 0 var(--color-primary);
+  }
+
+  .market-dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    border-radius: 999px;
+    background-color: var(--color-muted-foreground);
+  }
+  .market-dot[data-live="true"] {
+    background-color: var(--color-bull);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-bull) 15%, transparent);
   }
 
   .field {
