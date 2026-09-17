@@ -132,9 +132,12 @@ export function deriv(): DerivClient {
 /** Catalogue of real synthetic indices served by the data provider. */
 export const SYNTHETIC_SYMBOLS: SymbolInfo[] = [
   { symbol: "R_10", display_name: "مؤشر التقلب 10", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_15", display_name: "مؤشر التقلب 15", group: "مؤشرات التقلب (كل ثانيتين)" },
   { symbol: "R_25", display_name: "مؤشر التقلب 25", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_30", display_name: "مؤشر التقلب 30", group: "مؤشرات التقلب (كل ثانيتين)" },
   { symbol: "R_50", display_name: "مؤشر التقلب 50", group: "مؤشرات التقلب (كل ثانيتين)" },
   { symbol: "R_75", display_name: "مؤشر التقلب 75", group: "مؤشرات التقلب (كل ثانيتين)" },
+  { symbol: "R_90", display_name: "مؤشر التقلب 90", group: "مؤشرات التقلب (كل ثانيتين)" },
   { symbol: "R_100", display_name: "مؤشر التقلب 100", group: "مؤشرات التقلب (كل ثانيتين)" },
   { symbol: "1HZ10V", display_name: "مؤشر التقلب 10 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
   { symbol: "1HZ15V", display_name: "مؤشر التقلب 15 (1s)", group: "مؤشرات التقلب (كل ثانية)" },
