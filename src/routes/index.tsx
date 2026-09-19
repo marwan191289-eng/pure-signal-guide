@@ -1,31 +1,29 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Activity, BarChart3, RefreshCw, Search, ShieldCheck, Wifi, WifiOff } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Activity, BarChart3, ShieldCheck, Wifi, WifiOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PriceChart } from "@/components/PriceChart";
 import {
   deriv,
-  loadAvailableSymbols,
   streamCandles,
   streamTicks,
   type Candle,
   type ConnState,
-  type SymbolInfo,
 } from "@/lib/deriv";
 import { analyze } from "@/lib/indicators";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Deriv Pulse — مؤشرات اصطناعية مباشرة" },
+      { title: "Deriv Pulse — مؤشر التقلب 50 مباشرة" },
       {
         name: "description",
-        content: "أسعار حية وتحليل فني احترافي لمؤشرات التقلب من Deriv مباشرة، دون محاكاة.",
+        content: "سعر حي وتحليل فني احترافي لمؤشر التقلب 50 من Deriv مباشرة، دون محاكاة.",
       },
-      { property: "og:title", content: "Deriv Pulse — مؤشرات اصطناعية مباشرة" },
+      { property: "og:title", content: "Deriv Pulse — مؤشر التقلب 50 مباشرة" },
       {
         property: "og:description",
-        content: "راقب مؤشرات Deriv الاصطناعية وحلل الاتجاه والزخم من بيانات السوق الحية.",
+        content: "راقب مؤشر التقلب 50 وحلل الاتجاه والزخم من بيانات Deriv الحية.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -44,69 +42,28 @@ const TIMEFRAMES = [
 type Quote = { price: number; previous: number; epoch: number };
 
 const PRIMARY_SYMBOL = "R_50";
+const PRIMARY_NAME = "مؤشر التقلب 50";
 
 function Dashboard() {
-  const [active, setActive] = useState(PRIMARY_SYMBOL);
-  const [watchlist, setWatchlist] = useState<SymbolInfo[]>([]);
-  const [catalogState, setCatalogState] = useState<"loading" | "ready" | "error">("loading");
   const [granularity, setGranularity] = useState(60);
   const [candles, setCandles] = useState<Candle[]>([]);
-  const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [quote, setQuote] = useState<Quote>();
   const [connection, setConnection] = useState<ConnState>("connecting");
   const [dataError, setDataError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
 
   useEffect(() => deriv().onState(setConnection), []);
 
-  const refreshCatalog = useCallback(async () => {
-    setCatalogState("loading");
-    try {
-      const loaded = await loadAvailableSymbols();
-      // مؤشر التقلب 50 هو الأهم للمستخدم: يظهر أولاً دائماً.
-      const available = [...loaded].sort((a, b) =>
-        a.symbol === PRIMARY_SYMBOL ? -1 : b.symbol === PRIMARY_SYMBOL ? 1 : 0,
-      );
-      setWatchlist(available);
-      setActive((current) =>
-        available.some((item) => item.symbol === current)
-          ? current
-          : available.some((item) => item.symbol === PRIMARY_SYMBOL)
-            ? PRIMARY_SYMBOL
-            : (available[0]?.symbol ?? ""),
-      );
-      setCatalogState("ready");
-    } catch {
-      setCatalogState("error");
-      setWatchlist([]);
-    }
+  useEffect(() => {
+    return streamTicks(PRIMARY_SYMBOL, ({ quote: price, epoch }) => {
+      setQuote((current) => ({ price, previous: current?.price ?? price, epoch }));
+    });
   }, []);
 
-
   useEffect(() => {
-    void refreshCatalog();
-  }, [refreshCatalog]);
-
-  useEffect(() => {
-    const stops = watchlist.map((item) =>
-      streamTicks(item.symbol, ({ quote, epoch }) => {
-        setQuotes((current) => {
-          const old = current[item.symbol];
-          return {
-            ...current,
-            [item.symbol]: { price: quote, previous: old?.price ?? quote, epoch },
-          };
-        });
-      }),
-    );
-    return () => stops.forEach((stop) => stop());
-  }, [watchlist]);
-
-  useEffect(() => {
-    if (!active || !watchlist.some((item) => item.symbol === active)) return;
     setCandles([]);
     setDataError(null);
     let received = false;
-    const stop = streamCandles(active, granularity, 240, (next) => {
+    const stop = streamCandles(PRIMARY_SYMBOL, granularity, 240, (next) => {
       received = true;
       setCandles(next);
       setDataError(null);
@@ -119,18 +76,10 @@ function Dashboard() {
       window.clearTimeout(timeout);
       stop();
     };
-  }, [active, granularity, watchlist]);
+  }, [granularity]);
 
-  const activeInfo = watchlist.find((item) => item.symbol === active);
   const analysis = useMemo(() => analyze(candles), [candles]);
-  const filtered = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    if (!normalized) return watchlist;
-    return watchlist.filter((item) =>
-      `${item.display_name} ${item.symbol}`.toLowerCase().includes(normalized),
-    );
-  }, [query, watchlist]);
-  const visiblePrice = quotes[active]?.price ?? candles.at(-1)?.close;
+  const visiblePrice = quote?.price ?? candles.at(-1)?.close;
 
   return (
     <div dir="rtl" className="min-h-screen bg-background text-foreground">
@@ -142,7 +91,7 @@ function Dashboard() {
             </span>
             <div>
               <h1 className="text-base font-bold sm:text-lg">Deriv Pulse</h1>
-              <p className="text-[11px] text-muted-foreground">رادار المؤشرات الاصطناعية المباشر</p>
+              <p className="text-[11px] text-muted-foreground">رادار مؤشر التقلب 50 المباشر</p>
             </div>
           </div>
           <div className="status-pill" data-state={connection}>
@@ -161,94 +110,24 @@ function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-[1440px] px-4 py-4 sm:px-6 sm:py-6">
-        <div className="grid items-start gap-4 lg:grid-cols-[310px_minmax(0,1fr)]">
-          <aside className="panel lg:sticky lg:top-20">
-            <div className="border-b border-border p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <h2 className="text-sm font-semibold">قائمة المراقبة</h2>
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {catalogState === "ready"
-                      ? `${watchlist.length} مؤشر متاح فعلياً`
-                      : "التحقق من قائمة Deriv"}
-                  </p>
-                </div>
-                <span className="font-mono text-xs text-primary">LIVE</span>
-              </div>
-              <label className="relative block">
-                <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  className="field w-full pe-9"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="ابحث عن مؤشر..."
-                  aria-label="ابحث عن مؤشر"
-                />
-              </label>
-            </div>
-            <div className="max-h-[440px] overflow-y-auto lg:max-h-[calc(100vh-190px)]">
-              {catalogState === "loading" ? (
-                <div className="space-y-2 p-4">
-                  {[1, 2, 3, 4].map((item) => (
-                    <div key={item} className="h-12 animate-pulse rounded-md bg-muted/50" />
-                  ))}
-                </div>
-              ) : catalogState === "error" ? (
-                <div className="p-5 text-center">
-                  <WifiOff className="mx-auto size-5 text-muted-foreground" />
-                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    تعذر التحقق من رموز Deriv المتاحة. لا نعرض أي أسعار بديلة.
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="mt-3 gap-2"
-                    onClick={() => void refreshCatalog()}
-                  >
-                    <RefreshCw className="size-3.5" /> إعادة المحاولة
-                  </Button>
-                </div>
-              ) : filtered.length === 0 ? (
-                <p className="p-5 text-center text-xs text-muted-foreground">
-                  لا توجد مؤشرات متاحة بهذا الاسم.
-                </p>
-              ) : (
-                filtered.map((item) => (
-                  <MarketRow
-                    key={item.symbol}
-                    item={item}
-                    quote={quotes[item.symbol]}
-                    active={item.symbol === active}
-                    onSelect={() => setActive(item.symbol)}
-                  />
-                ))
-              )}
-            </div>
-          </aside>
-
-          <div className="min-w-0 space-y-4">
+        <div className="mx-auto max-w-5xl min-w-0 space-y-4">
             <section className="panel">
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-border p-4 sm:p-5">
                 <div>
                   <div className="mb-1 flex items-center gap-2">
-                    <span className="market-dot" data-live={quotes[active] ? "true" : "false"} />
-                    <span className="font-mono text-xs text-muted-foreground">{active}</span>
+                    <span className="market-dot" data-live={quote ? "true" : "false"} />
+                    <span className="font-mono text-xs text-muted-foreground">{PRIMARY_SYMBOL}</span>
                   </div>
-                  <h2 className="text-xl font-bold sm:text-2xl">
-                    {activeInfo?.display_name ?? "لا يوجد مؤشر متاح"}
-                  </h2>
+                  <h2 className="text-xl font-bold sm:text-2xl">{PRIMARY_NAME}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {activeInfo
-                      ? "بيانات السوق من Deriv مباشرة"
-                      : "تظهر المؤشرات بعد التحقق من توفرها في Deriv"}
+                    بيانات السوق من Deriv مباشرة
                   </p>
                 </div>
                 <div className="text-left" dir="ltr">
                   <p className="font-mono text-3xl font-semibold tabular-nums sm:text-4xl">
                     {visiblePrice == null ? "—" : formatPrice(visiblePrice)}
                   </p>
-                  <QuoteMove quote={quotes[active]} />
+                  <QuoteMove quote={quote} />
                 </div>
               </div>
 
@@ -257,9 +136,7 @@ function Dashboard() {
                   <BarChart3 className="size-4 text-primary" />
                   {candles.length > 0
                     ? `${candles.length} شمعة حقيقية`
-                    : activeInfo
-                      ? "بانتظار الشموع الحية"
-                      : "لا توجد بيانات للعرض"}
+                    : "بانتظار الشموع الحية"}
                 </div>
                 <div className="flex gap-1">
                   {TIMEFRAMES.map((frame) => (
@@ -355,53 +232,9 @@ function Dashboard() {
                 </div>
               </section>
             </div>
-          </div>
         </div>
       </main>
     </div>
-  );
-}
-
-function MarketRow({
-  item,
-  quote,
-  active,
-  onSelect,
-}: {
-  item: SymbolInfo;
-  quote: Quote | undefined;
-  active: boolean;
-  onSelect: () => void;
-}) {
-  const delta = quote ? quote.price - quote.previous : 0;
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className="market-row h-auto rounded-none"
-      data-active={active}
-      onClick={onSelect}
-    >
-      <span className="min-w-0">
-        <span className="flex items-center gap-2">
-          <span className="market-dot" data-live={quote ? "true" : "false"} />
-          <span className="truncate text-xs font-medium">{item.display_name}</span>
-        </span>
-        <span className="mt-1 block text-start font-mono text-[10px] text-muted-foreground">
-          {item.symbol}
-        </span>
-      </span>
-      <span className="text-left" dir="ltr">
-        <span className="block font-mono text-sm font-semibold tabular-nums">
-          {quote ? formatPrice(quote.price) : "—"}
-        </span>
-        <span
-          className={`block font-mono text-[10px] ${delta > 0 ? "text-bull" : delta < 0 ? "text-bear" : "text-muted-foreground"}`}
-        >
-          {quote ? (delta > 0 ? "▲ مباشر" : delta < 0 ? "▼ مباشر" : "• مباشر") : "بانتظار البيانات"}
-        </span>
-      </span>
-    </Button>
   );
 }
 
