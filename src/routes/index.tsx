@@ -43,8 +43,10 @@ const TIMEFRAMES = [
 
 type Quote = { price: number; previous: number; epoch: number };
 
+const PRIMARY_SYMBOL = "R_50";
+
 function Dashboard() {
-  const [active, setActive] = useState("R_10");
+  const [active, setActive] = useState(PRIMARY_SYMBOL);
   const [watchlist, setWatchlist] = useState<SymbolInfo[]>([]);
   const [catalogState, setCatalogState] = useState<"loading" | "ready" | "error">("loading");
   const [granularity, setGranularity] = useState(60);
@@ -59,10 +61,18 @@ function Dashboard() {
   const refreshCatalog = useCallback(async () => {
     setCatalogState("loading");
     try {
-      const available = await loadAvailableSymbols();
+      const loaded = await loadAvailableSymbols();
+      // مؤشر التقلب 50 هو الأهم للمستخدم: يظهر أولاً دائماً.
+      const available = [...loaded].sort((a, b) =>
+        a.symbol === PRIMARY_SYMBOL ? -1 : b.symbol === PRIMARY_SYMBOL ? 1 : 0,
+      );
       setWatchlist(available);
       setActive((current) =>
-        available.some((item) => item.symbol === current) ? current : (available[0]?.symbol ?? ""),
+        available.some((item) => item.symbol === current)
+          ? current
+          : available.some((item) => item.symbol === PRIMARY_SYMBOL)
+            ? PRIMARY_SYMBOL
+            : (available[0]?.symbol ?? ""),
       );
       setCatalogState("ready");
     } catch {
@@ -70,6 +80,7 @@ function Dashboard() {
       setWatchlist([]);
     }
   }, []);
+
 
   useEffect(() => {
     void refreshCatalog();
