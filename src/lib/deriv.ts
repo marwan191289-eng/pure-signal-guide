@@ -242,25 +242,41 @@ export const SYNTHETIC_SYMBOLS: SymbolInfo[] = [
  * Returns only volatility indices that answer a real Deriv history request.
  * Some Deriv sessions currently return an empty active_symbols catalogue, so
  * the target symbols must be verified individually instead of assumed.
+ *
+ * Probing happens in small batches with retries: firing all requests at once
+ * makes slow symbols time out and disappear from the list even though they are
+ * available.
  */
-export async function loadAvailableSymbols(): Promise<SymbolInfo[]> {
-  const checks = await Promise.all(
-    SYNTHETIC_SYMBOLS.map(async (item) => {
-      try {
-        await deriv().send({
-          ticks_history: item.symbol,
-          count: 1,
-          end: "latest",
-          style: "ticks",
-        });
-        return item;
-      } catch {
-        return null;
-      }
-    }),
-  );
-  return checks.filter((item): item is SymbolInfo => item !== null);
+async function probeSymbol(symbol: string, attempts: number): Promise<boolean> {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      await deriv().send({
+        ticks_history: symbol,
+        count: 1,
+        end: "latest",
+        style: "ticks",
+      });
+      return true;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+  }
+  return false;
 }
+
+export async function loadAvailableSymbols(): Promise<SymbolInfo[]> {
+  const available: SymbolInfo[] = [];
+  const batchSize = 4;
+  for (let i = 0; i < SYNTHETIC_SYMBOLS.length; i += batchSize) {
+    const batch = SYNTHETIC_SYMBOLS.slice(i, i + batchSize);
+    const results = await Promise.all(
+      batch.map(async (item) => ((await probeSymbol(item.symbol, 3)) ? item : null)),
+    );
+    for (const item of results) if (item) available.push(item);
+  }
+  return available;
+}
+
 
 const mapCandles = (arr: any[]): Candle[] =>
   arr.map((c) => ({
