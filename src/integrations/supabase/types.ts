@@ -14,7 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      headway_candles: {
+        Row: {
+          close: number
+          epoch: number
+          high: number
+          id: number
+          low: number
+          open: number
+          received_at: string
+          symbol: string
+          timeframe: number
+          volume: number
+        }
+        Insert: {
+          close: number
+          epoch: number
+          high: number
+          id?: number
+          low: number
+          open: number
+          received_at?: string
+          symbol: string
+          timeframe: number
+          volume?: number
+        }
+        Update: {
+          close?: number
+          epoch?: number
+          high?: number
+          id?: number
+          low?: number
+          open?: number
+          received_at?: string
+          symbol?: string
+          timeframe?: number
+          volume?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
