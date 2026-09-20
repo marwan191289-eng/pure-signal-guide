@@ -305,4 +305,153 @@
     border-color: color-mix(in oklab, var(--color-primary) 55%, transparent);
     background-color: color-mix(in oklab, var(--color-primary) 8%, transparent);
   }
+
+  .agent-live-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid color-mix(in oklab, var(--color-bull) 35%, transparent);
+    border-radius: 999px;
+    padding: 0.3rem 0.55rem;
+    color: var(--color-bull);
+    font-size: 0.68rem;
+  }
+
+  .agent-live-pill .status-dot {
+    width: 0.4rem;
+    height: 0.4rem;
+    border-radius: 999px;
+    background: var(--color-bull);
+    animation: pulse-dot 1.6s ease-in-out infinite;
+  }
+
+  .agent-signal {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 0.9rem 1rem;
+    background: color-mix(in oklab, var(--color-muted) 45%, transparent);
+  }
+
+  .agent-signal[data-dir="up"] {
+    border-color: color-mix(in oklab, var(--color-bull) 45%, transparent);
+    background: color-mix(in oklab, var(--color-bull) 10%, transparent);
+  }
+
+  .agent-signal[data-dir="down"] {
+    border-color: color-mix(in oklab, var(--color-bear) 45%, transparent);
+    background: color-mix(in oklab, var(--color-bear) 10%, transparent);
+  }
+
+  .agent-signal > div:first-child {
+    display: grid;
+    gap: 0.3rem;
+  }
+
+  .agent-overline,
+  .agent-confidence span {
+    color: var(--color-muted-foreground);
+    font-size: 0.68rem;
+  }
+
+  .agent-signal strong {
+    color: var(--color-foreground);
+    font-size: 1.12rem;
+  }
+
+  .agent-confidence {
+    display: grid;
+    justify-items: end;
+    gap: 0.2rem;
+  }
+
+  .agent-confidence b {
+    color: var(--color-primary);
+    font-family: var(--font-mono);
+    font-size: 1.15rem;
+  }
+
+  .agent-regime {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 0.7rem;
+    color: var(--color-muted-foreground);
+    font-size: 0.72rem;
+  }
+
+  .agent-regime strong {
+    color: var(--color-foreground);
+    font-weight: 600;
+  }
+
+  .forecast-strip {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+  }
+
+  .forecast-card {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.6rem;
+    background: var(--color-background);
+  }
+
+  .forecast-card > span,
+  .forecast-card small {
+    color: var(--color-muted-foreground);
+    font-size: 0.62rem;
+  }
+
+  .forecast-card strong {
+    overflow: hidden;
+    color: var(--color-foreground);
+    font-size: 0.76rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .forecast-card strong[data-dir="up"] { color: var(--color-bull); }
+  .forecast-card strong[data-dir="down"] { color: var(--color-bear); }
+  .forecast-card small { line-height: 1.45; }
+
+  .model-version {
+    color: var(--color-muted-foreground);
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+  }
+
+  .learning-card {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.45rem;
+    margin-top: 1rem;
+  }
+
+  .learning-card > div {
+    display: grid;
+    gap: 0.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: 0.6rem;
+    background: var(--color-background);
+  }
+
+  .learning-card span {
+    color: var(--color-muted-foreground);
+    font-size: 0.62rem;
+  }
+
+  .learning-card strong {
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+  }
 }

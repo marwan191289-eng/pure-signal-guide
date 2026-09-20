@@ -11,6 +11,11 @@ import {
   type ConnState,
 } from "@/lib/deriv";
 import { analyze } from "@/lib/indicators";
+import {
+  AdaptiveAnalysisAgent,
+  type AgentDirection,
+  type AgentSnapshot,
+} from "@/lib/analysis-agent";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -50,6 +55,11 @@ function Dashboard() {
   const [quote, setQuote] = useState<Quote>();
   const [connection, setConnection] = useState<ConnState>("connecting");
   const [dataError, setDataError] = useState<string | null>(null);
+  const [agentSnapshot, setAgentSnapshot] = useState<AgentSnapshot | null>(null);
+  const agent = useMemo(
+    () => new AdaptiveAnalysisAgent(PRIMARY_SYMBOL, granularity),
+    [granularity],
+  );
 
   useEffect(() => deriv().onState(setConnection), []);
 
@@ -79,7 +89,16 @@ function Dashboard() {
   }, [granularity]);
 
   const analysis = useMemo(() => analyze(candles), [candles]);
+  useEffect(() => {
+    setAgentSnapshot(agent.process(candles, granularity));
+  }, [agent, candles, granularity]);
   const visiblePrice = quote?.price ?? candles.at(-1)?.close;
+  const chartDirection =
+    agentSnapshot?.primary.direction === "up"
+      ? "buy"
+      : agentSnapshot?.primary.direction === "down"
+        ? "sell"
+        : analysis?.direction ?? "neutral";
 
   return (
     <div dir="rtl" className="min-h-screen bg-background text-foreground">
@@ -161,57 +180,80 @@ function Dashboard() {
                 </div>
               ) : (
                 <div className="px-2 py-4 sm:px-4">
-                  <PriceChart candles={candles} direction={analysis?.direction ?? "neutral"} />
+                   <PriceChart candles={candles} direction={chartDirection} />
                 </div>
               )}
             </section>
 
             <div className="grid gap-4 xl:grid-cols-[0.9fr_1.4fr]">
               <section className="panel p-4 sm:p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">قراءة الاتجاه</h3>
-                  <span className="text-[11px] text-muted-foreground">تحديث لحظي</span>
+                 <div className="mb-4 flex items-center justify-between">
+                   <div>
+                     <h3 className="text-sm font-semibold">عقل التحليل التكيفي</h3>
+                     <p className="mt-1 text-[11px] text-muted-foreground">
+                       يتعلم من الشموع المغلقة، لا من الأسعار المتخيلة
+                     </p>
+                   </div>
+                   <span className="agent-live-pill">
+                     <span className="status-dot" />
+                     {agentSnapshot ? "يعمل" : "ينتظر البيانات"}
+                   </span>
                 </div>
-                {analysis ? (
+                 {agentSnapshot ? (
                   <>
-                    <div className="signal" data-dir={analysis.direction}>
-                      {analysis.direction === "buy"
-                        ? "اتجاه صاعد"
-                        : analysis.direction === "sell"
-                          ? "اتجاه هابط"
-                          : "اتجاه محايد"}
+                     <div className="agent-signal" data-dir={agentSnapshot.primary.direction}>
+                       <div>
+                         <span className="agent-overline">الترجيح الأقرب · الشمعة التالية</span>
+                         <strong>{directionLabel(agentSnapshot.primary.direction)}</strong>
+                       </div>
+                       <div className="agent-confidence">
+                         <b>{agentSnapshot.primary.confidence}%</b>
+                         <span>ثقة النموذج</span>
+                       </div>
                     </div>
-                    <div className="mt-4 flex items-center justify-between text-xs">
-                      <span className="text-muted-foreground">قوة التوافق</span>
-                      <span className="font-mono font-semibold">{analysis.strength}%</span>
+                     <div className="agent-regime">
+                       <span>حالة السوق</span>
+                       <strong>{regimeLabel(agentSnapshot.regime)}</strong>
                     </div>
-                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary transition-[width]"
-                        style={{ width: `${analysis.strength}%` }}
-                      />
+                     <div className="forecast-strip">
+                       {agentSnapshot.forecasts.map((forecast) => (
+                         <div className="forecast-card" key={forecast.horizon}>
+                           <span>بعد {forecast.horizon} {forecast.horizon === 1 ? "شمعة" : "شموع"}</span>
+                           <strong data-dir={forecast.direction}>
+                             {directionLabel(forecast.direction)}
+                           </strong>
+                           <small>
+                             صعود {forecast.probabilityUp}% · هبوط {forecast.probabilityDown}%
+                           </small>
+                         </div>
+                       ))}
                     </div>
                     <ul className="mt-5 space-y-2.5">
-                      {analysis.reasons.map((reason) => (
+                       {agentSnapshot.primary.reasons.map((reason) => (
                         <li
-                          key={reason.text}
+                           key={reason}
                           className="reason"
-                          data-tone={reason.weight > 0 ? "up" : reason.weight < 0 ? "down" : "flat"}
+                           data-tone={agentSnapshot.primary.direction === "up" ? "up" : agentSnapshot.primary.direction === "down" ? "down" : "flat"}
                         >
-                          {reason.text}
+                           {reason}
                         </li>
                       ))}
                     </ul>
                   </>
                 ) : (
                   <p className="py-8 text-center text-sm leading-6 text-muted-foreground">
-                    نحتاج إلى 60 شمعة حقيقية على الأقل قبل إصدار قراءة.
+                     يحتاج العقل إلى 60 شمعة حقيقية على الأقل قبل إصدار قراءة قابلة للتعلم.
                   </p>
                 )}
               </section>
 
               <section className="panel p-4 sm:p-5">
-                <h3 className="mb-4 text-sm font-semibold">القياسات الفنية</h3>
+                 <div className="mb-4 flex items-center justify-between">
+                   <h3 className="text-sm font-semibold">القياسات الفنية</h3>
+                   {agentSnapshot && (
+                     <span className="model-version">Agent v1 · {agentSnapshot.sampleCount} عينة</span>
+                   )}
+                 </div>
                 <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
                   <Metric label="RSI 14" value={analysis ? analysis.rsi14.toFixed(1) : "—"} />
                   <Metric label="EMA 9" value={analysis ? formatPrice(analysis.ema9) : "—"} />
@@ -223,11 +265,27 @@ function Dashboard() {
                     value={analysis ? `${signed(analysis.momentumPct)}%` : "—"}
                   />
                 </div>
+                 {agentSnapshot && (
+                   <div className="learning-card">
+                     <div>
+                       <span>دقة آخر 40 نتيجة</span>
+                       <strong>{agentSnapshot.recentAccuracy.toFixed(0)}%</strong>
+                     </div>
+                     <div>
+                       <span>الدقة التراكمية</span>
+                       <strong>{agentSnapshot.accuracy.toFixed(0)}%</strong>
+                     </div>
+                     <div>
+                       <span>معدل التعلم</span>
+                       <strong>{agentSnapshot.learningRate.toFixed(3)}</strong>
+                     </div>
+                   </div>
+                 )}
                 <div className="mt-5 flex gap-3 border-t border-border pt-4 text-xs leading-6 text-muted-foreground">
                   <ShieldCheck className="mt-1 size-4 shrink-0 text-primary" />
                   <p>
-                    كل قراءة محسوبة من شموع Deriv المستلمة فعلياً. التحليل احتمالي وليس ضماناً
-                    لنتيجة الصفقة.
+                     يتعلم النموذج من نتائج توقعاته السابقة فقط. لا توجد ضمانات، ولا يستخدم أخباراً
+                     أو أسعاراً بديلة، ولا يصدر توقعاً قبل اكتمال الحد الأدنى من البيانات.
                   </p>
                 </div>
               </section>
@@ -270,4 +328,18 @@ function formatPrice(value: number) {
 
 function signed(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(3)}`;
+}
+
+function directionLabel(direction: AgentDirection) {
+  return direction === "up" ? "ميل صاعد" : direction === "down" ? "ميل هابط" : "محايد";
+}
+
+function regimeLabel(regime: AgentSnapshot["regime"]) {
+  return {
+    trend_up: "اتجاه صاعد",
+    trend_down: "اتجاه هابط",
+    range: "نطاق جانبي",
+    high_volatility: "تقلب مرتفع",
+    low_volatility: "تقلب منخفض",
+  }[regime];
 }
